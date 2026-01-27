@@ -251,6 +251,32 @@ function sfx(type){
         gl.gain.setValueAtTime(0.2,t+i*0.1);gl.gain.exponentialRampToValueAtTime(0.01,t+i*0.1+0.2);
         ol.start(t+i*0.1);ol.stop(t+i*0.1+0.2);
       });break;
+    case'charge_impact':
+      o.type='sawtooth';o.frequency.setValueAtTime(80,t);o.frequency.exponentialRampToValueAtTime(30,t+0.2);
+      g.gain.setValueAtTime(0.4,t);g.gain.exponentialRampToValueAtTime(0.01,t+0.25);
+      o.start(t);o.stop(t+0.25);break;
+    case'explosion':
+      o.type='sawtooth';o.frequency.setValueAtTime(120,t);o.frequency.exponentialRampToValueAtTime(20,t+0.4);
+      g.gain.setValueAtTime(0.5,t);g.gain.exponentialRampToValueAtTime(0.01,t+0.4);
+      o.start(t);o.stop(t+0.4);
+      {const o3=audioCtx.createOscillator(),g3=audioCtx.createGain();
+      o3.connect(g3);g3.connect(audioCtx.destination);
+      o3.type='square';o3.frequency.setValueAtTime(60,t);o3.frequency.exponentialRampToValueAtTime(15,t+0.3);
+      g3.gain.setValueAtTime(0.3,t);g3.gain.exponentialRampToValueAtTime(0.01,t+0.35);
+      o3.start(t);o3.stop(t+0.35);}break;
+    case'summon':
+      o.type='sine';o.frequency.setValueAtTime(200,t);o.frequency.exponentialRampToValueAtTime(500,t+0.3);
+      g.gain.setValueAtTime(0.15,t);g.gain.exponentialRampToValueAtTime(0.01,t+0.4);
+      o.start(t);o.stop(t+0.4);
+      {const o4=audioCtx.createOscillator(),g4=audioCtx.createGain();
+      o4.connect(g4);g4.connect(audioCtx.destination);
+      o4.type='sine';o4.frequency.setValueAtTime(350,t+0.1);o4.frequency.exponentialRampToValueAtTime(700,t+0.35);
+      g4.gain.setValueAtTime(0.12,t+0.1);g4.gain.exponentialRampToValueAtTime(0.01,t+0.4);
+      o4.start(t+0.1);o4.stop(t+0.4);}break;
+    case'shield_block':
+      o.type='square';o.frequency.setValueAtTime(300,t);o.frequency.exponentialRampToValueAtTime(150,t+0.08);
+      g.gain.setValueAtTime(0.25,t);g.gain.exponentialRampToValueAtTime(0.01,t+0.1);
+      o.start(t);o.stop(t+0.1);break;
   }
 }
 const ATTACK_RANGE = 50;
@@ -453,7 +479,6 @@ let dungeonRooms=[];
 
 function generateDungeon(depth){
   const numRooms=5+Math.floor(Math.random()*4);
-  const enemyTypes=['slime','skeleton','archer'];
   const defs=[];
   for(let i=0;i<numRooms;i++){
     const isBoss=i===numRooms-1;
@@ -463,18 +488,40 @@ function generateDungeon(depth){
     if(!isBoss)doors.push('bottom');
 
     let enList=[];
+    // Build enemy pool based on depth
+    let pool=['slime'];
+    if(depth>=1) pool.push('wolf');
+    if(depth>=2) pool.push('archer');
+    if(depth>=3) pool.push('charger','bomber','skeleton');
+    if(depth>=5) pool.push('necromancer','shield_knight');
+
     if(isBoss){
       enList.push({type:'boss',x:7,y:8});
-      if(depth>=3){enList.push({type:'slime',x:4,y:12});enList.push({type:'slime',x:10,y:12});}
+      // Boss rooms spawn 1-2 minions
+      const minionCount=1+Math.floor(Math.random()*2);
+      for(let m=0;m<minionCount;m++){
+        const mt=pool[Math.floor(Math.random()*pool.length)];
+        if(mt==='wolf'){
+          enList.push({type:'pack',count:3,x:3+m*8,y:12});
+        }else{
+          enList.push({type:mt,x:3+m*8,y:12});
+        }
+      }
     }else{
       const numEnemies=2+Math.floor(Math.random()*3)+Math.floor(depth*0.5);
-      for(let j=0;j<numEnemies;j++){
-        const avail=depth>=3?enemyTypes:depth>=2?['slime','skeleton']:['slime'];
-        const pool=i>=numRooms/2?enemyTypes:avail;
+      let spawned=0;
+      while(spawned<numEnemies){
         const type=pool[Math.floor(Math.random()*pool.length)];
         const ex=2+Math.floor(Math.random()*11);
         const ey=3+Math.floor(Math.random()*14);
-        enList.push({type,x:ex,y:ey});
+        if(type==='wolf'){
+          const count=3+Math.floor(Math.random()*2); // 3-4
+          enList.push({type:'pack',count,x:ex,y:ey});
+          spawned+=count;
+        }else{
+          enList.push({type,x:ex,y:ey});
+          spawned++;
+        }
       }
     }
 
@@ -835,21 +882,56 @@ const ENEMY_DEFS={
   slime:{r:12,hp:40,maxHp:40,speed:40,dmg:8,color:'#22c55e',eyeColor:'#fff',atkRange:28,atkCd:1.5,xp:10},
   skeleton:{r:13,hp:60,maxHp:60,speed:55,dmg:12,color:'#e2e8f0',eyeColor:'#1a1a2e',atkRange:32,atkCd:1.2,xp:20},
   archer:{r:12,hp:35,maxHp:35,speed:30,dmg:10,color:'#a78bfa',eyeColor:'#fff',atkRange:180,atkCd:2.0,xp:25,ranged:true},
+  charger:{r:14,hp:40,maxHp:40,speed:50,dmg:20,color:'#ea580c',eyeColor:'#fff',atkRange:30,atkCd:3.0,xp:30,
+    chargeState:'idle',chargeTelegraph:0,chargeDir:{x:0,y:0},chargeSpeed:0,stunTimer:0},
+  wolf:{r:10,hp:20,maxHp:20,speed:65,dmg:8,color:'#9ca3af',eyeColor:'#fbbf24',atkRange:24,atkCd:1.2,xp:8,
+    packId:null,packAngle:0},
+  bomber:{r:11,hp:25,maxHp:25,speed:30,dmg:30,color:'#f97316',eyeColor:'#fff',atkRange:60,atkCd:99,xp:20,
+    fuseTimer:-1,fuseMax:2.0},
+  necromancer:{r:14,hp:60,maxHp:60,speed:35,dmg:5,color:'#7e22ce',eyeColor:'#a855f7',atkRange:40,atkCd:2.0,xp:50,
+    summonTimer:5,summonCount:0,teleportCd:0,summonIds:[]},
+  shield_knight:{r:15,hp:70,maxHp:70,speed:40,dmg:12,color:'#6b7280',eyeColor:'#fff',atkRange:34,atkCd:2.5,xp:35,
+    shieldAngle:0,bashCd:0,bashTimer:4.0},
   boss:{r:28,hp:300,maxHp:300,speed:45,dmg:18,color:'#ef4444',eyeColor:'#fbbf24',atkRange:40,atkCd:1.0,xp:100},
 };
 
+let nextPackId=0;
 function spawnEnemies(){
   enemies=[];
   const def=dungeonRooms[currentRoom];
   const hpMult=1+(dungeonDepth-1)*0.3;
   const dmgMult=1+(dungeonDepth-1)*0.15;
   def.enemies.forEach(e=>{
+    if(e.type==='pack'){
+      // Wolf pack spawn
+      const packId=nextPackId++;
+      const count=e.count||3;
+      for(let i=0;i<count;i++){
+        const base=ENEMY_DEFS.wolf;
+        const angle=(Math.PI*2/count)*i;
+        const ox=Math.cos(angle)*20, oy=Math.sin(angle)*20;
+        enemies.push({...base,type:'wolf',
+          x:e.x*TILE+TILE/2+ox, y:e.y*TILE+TILE/2+oy,
+          hp:Math.ceil(base.hp*hpMult),maxHp:Math.ceil(base.maxHp*hpMult),
+          dmg:Math.ceil(base.dmg*dmgMult),
+          atkTimer:Math.random()*base.atkCd,hit:0,knockX:0,knockY:0,
+          packId,packAngle:(Math.PI*2/count)*i});
+      }
+      return;
+    }
     const base=ENEMY_DEFS[e.type];
-    enemies.push({...base,type:e.type,
+    if(!base)return;
+    const en={...base,type:e.type,
       x:e.x*TILE+TILE/2,y:e.y*TILE+TILE/2,
       hp:Math.ceil(base.hp*hpMult),maxHp:Math.ceil(base.maxHp*hpMult),
       dmg:Math.ceil(base.dmg*dmgMult),
-      atkTimer:Math.random()*base.atkCd,hit:0,knockX:0,knockY:0});
+      atkTimer:Math.random()*base.atkCd,hit:0,knockX:0,knockY:0};
+    // Type-specific init
+    if(e.type==='charger'){en.chargeState='idle';en.chargeTelegraph=0;en.chargeDir={x:0,y:0};en.chargeSpeed=0;en.stunTimer=0;}
+    if(e.type==='bomber'){en.fuseTimer=-1;en.fuseMax=2.0;}
+    if(e.type==='necromancer'){en.summonTimer=5;en.summonCount=0;en.teleportCd=0;en.summonIds=[];}
+    if(e.type==='shield_knight'){en.shieldAngle=0;en.bashCd=0;en.bashTimer=4.0;}
+    enemies.push(en);
   });
 }
 
@@ -922,6 +1004,19 @@ function doDash(){
 }
 
 function hitEnemy(e,dmg,nx,ny){
+  // Shield knight frontal block check
+  if(e.type==='shield_knight'){
+    const hitAngle=Math.atan2(ny,nx);
+    const shieldAngle=Math.atan2(player.y-e.y,player.x-e.x);
+    let angleDiff=Math.abs(hitAngle-shieldAngle);
+    if(angleDiff>Math.PI)angleDiff=Math.PI*2-angleDiff;
+    if(angleDiff<Math.PI/2){
+      // Frontal hit — 75% damage reduction
+      dmg=Math.ceil(dmg*0.25);
+      sfx('shield_block');
+      for(let i=0;i<4;i++){particles.push({x:e.x+nx*e.r,y:e.y+ny*e.r,vx:(Math.random()-0.5)*60,vy:(Math.random()-0.5)*60,life:0.3,maxLife:0.3,r:2,color:'#60a5fa'});}
+    }
+  }
   e.hp-=dmg;
   e.hit=0.15;
   sfx('hit');haptic('medium');
@@ -932,7 +1027,20 @@ function hitEnemy(e,dmg,nx,ny){
   if(e.hp<=0){
     sfx('kill');haptic('kill');
     lifetimeKills++;
-    for(let i=0;i<12;i++){const a=Math.random()*Math.PI*2;const sp=40+Math.random()*80;particles.push({x:e.x,y:e.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:0.6,maxLife:0.6,r:3+Math.random()*4,color:e.color});}
+    // Unique death particles per enemy type
+    const deathColor=e.type==='charger'?'#ea580c':e.type==='wolf'?'#6b7280':e.type==='bomber'?'#f97316':e.type==='necromancer'?'#a855f7':e.type==='shield_knight'?'#3b82f6':e.color;
+    const deathCount=e.type==='necromancer'?18:e.type==='charger'?15:12;
+    for(let i=0;i<deathCount;i++){const a=Math.random()*Math.PI*2;const sp=40+Math.random()*80;particles.push({x:e.x,y:e.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:0.6,maxLife:0.6,r:3+Math.random()*4,color:deathColor});}
+    // Necromancer death: kill all summons
+    if(e.type==='necromancer'){
+      enemies.forEach(o=>{
+        if(o._summonedBy===e&&o.hp>0){
+          o.hp=0;
+          for(let i=0;i<6;i++){const a=Math.random()*Math.PI*2;particles.push({x:o.x,y:o.y,vx:Math.cos(a)*50,vy:Math.sin(a)*50,life:0.4,maxLife:0.4,r:3,color:'#a855f7'});}
+          gainXP(o.xp);
+        }
+      });
+    }
     gainXP(e.xp);
     spawnLoot(e.x,e.y,e.type);
   }
@@ -1066,15 +1174,184 @@ function update(dt){
     if(e.hit>0){e.hit-=dt;e.x+=e.knockX*dt*4;e.y+=e.knockY*dt*4;e.knockX*=0.9;e.knockY*=0.9;if(!canMove(e.x,e.y,e.r)){e.x-=e.knockX*dt*4;e.y-=e.knockY*dt*4;}return;}
     const dx=player.x-e.x,dy=player.y-e.y;
     const dist=Math.sqrt(dx*dx+dy*dy);
-    
-    if(e.ranged){
+
+    // ─── CHARGER AI ───
+    if(e.type==='charger'){
+      if(e.stunTimer>0){e.stunTimer-=dt;return;}
+      if(e.chargeState==='idle'){
+        // Wander slowly toward player
+        if(dist>60){
+          const nx=e.x+dx/dist*e.speed*0.5*dt;
+          const ny=e.y+dy/dist*e.speed*0.5*dt;
+          if(canMove(nx,ny,e.r)){e.x=nx;e.y=ny;}
+        }
+        e.atkTimer-=dt;
+        if(e.atkTimer<=0&&dist<200){
+          e.chargeState='telegraph';e.chargeTelegraph=0.8;
+          e.chargeDir={x:dx/dist,y:dy/dist};
+          e.atkTimer=e.atkCd;
+        }
+      }else if(e.chargeState==='telegraph'){
+        e.chargeTelegraph-=dt;
+        if(e.chargeTelegraph<=0){e.chargeState='charging';e.chargeSpeed=e.speed*3;e.chargeTimer=1.5;}
+      }else if(e.chargeState==='charging'){
+        e.chargeTimer-=dt;
+        const nx=e.x+e.chargeDir.x*e.chargeSpeed*dt;
+        const ny=e.y+e.chargeDir.y*e.chargeSpeed*dt;
+        if(canMove(nx,ny,e.r)){e.x=nx;e.y=ny;}
+        else{
+          // Hit wall → stunned
+          e.chargeState='idle';e.stunTimer=1.5;
+          sfx('charge_impact');haptic('heavy');shakeTimer=0.2;shakeIntensity=6;
+          for(let i=0;i<10;i++){const a=Math.random()*Math.PI*2;particles.push({x:e.x,y:e.y,vx:Math.cos(a)*80,vy:Math.sin(a)*80,life:0.5,maxLife:0.5,r:3,color:'#fbbf24'});}
+        }
+        // Hit player while charging
+        if(dist<e.r+player.r+5){hitPlayer(e.dmg);e.chargeState='idle';e.atkTimer=e.atkCd;}
+        if(e.chargeTimer<=0)e.chargeState='idle';
+      }
+    }
+    // ─── WOLF AI ───
+    else if(e.type==='wolf'){
+      // Count alive pack members
+      const packMates=enemies.filter(o=>o.hp>0&&o.type==='wolf'&&o.packId===e.packId);
+      const packSize=packMates.length;
+      const myIdx=packMates.indexOf(e);
+      // Target angle around player
+      const targetAngle=(Math.PI*2/packSize)*myIdx+Date.now()*0.001;
+      const orbDist=50;
+      const tx=player.x+Math.cos(targetAngle)*orbDist;
+      const ty=player.y+Math.sin(targetAngle)*orbDist;
+      const tdx=tx-e.x,tdy=ty-e.y;
+      const tdist=Math.sqrt(tdx*tdx+tdy*tdy);
+      if(tdist>5){
+        const nx=e.x+tdx/tdist*e.speed*dt;
+        const ny=e.y+tdy/tdist*e.speed*dt;
+        if(canMove(nx,ny,e.r)){e.x=nx;e.y=ny;}
+      }
+      // Pack bonus: attack faster when 2+ wolves close
+      const closeWolves=packMates.filter(w=>{ const d=Math.sqrt((player.x-w.x)**2+(player.y-w.y)**2);return d<50;}).length;
+      const atkCdMod=closeWolves>=2?0.6:1.0;
+      e.atkTimer-=dt;
+      if(e.atkTimer<=0&&dist<e.atkRange+player.r){
+        e.atkTimer=e.atkCd*atkCdMod;
+        hitPlayer(e.dmg);
+      }
+    }
+    // ─── BOMBER AI ───
+    else if(e.type==='bomber'){
+      if(e.fuseTimer<0){
+        // Walk toward player slowly
+        if(dist>e.atkRange){
+          const nx=e.x+dx/dist*e.speed*dt;
+          const ny=e.y+dy/dist*e.speed*dt;
+          if(canMove(nx,ny,e.r)){e.x=nx;e.y=ny;}
+        }else{
+          // Start countdown
+          e.fuseTimer=e.fuseMax;
+        }
+      }else{
+        e.fuseTimer-=dt;
+        if(e.fuseTimer<=0){
+          // EXPLODE
+          sfx('explosion');haptic('heavy');shakeTimer=0.3;shakeIntensity=8;
+          const expR=80;
+          // Damage player
+          if(dist<expR+player.r)hitPlayer(e.dmg);
+          // Damage other enemies
+          enemies.forEach(o=>{
+            if(o===e||o.hp<=0)return;
+            const od=Math.sqrt((o.x-e.x)**2+(o.y-e.y)**2);
+            if(od<expR+o.r){
+              const ndx=(o.x-e.x)/(od||1), ndy=(o.y-e.y)/(od||1);
+              hitEnemy(o,e.dmg,ndx,ndy);
+            }
+          });
+          // Explosion particles
+          for(let i=0;i<20;i++){const a=Math.random()*Math.PI*2;const sp=60+Math.random()*120;
+            particles.push({x:e.x,y:e.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:0.6,maxLife:0.6,r:4+Math.random()*5,color:['#f97316','#ef4444','#fbbf24'][Math.floor(Math.random()*3)]});}
+          e.hp=0; // Die
+          gainXP(e.xp);spawnLoot(e.x,e.y,e.type);
+        }
+      }
+    }
+    // ─── NECROMANCER AI ───
+    else if(e.type==='necromancer'){
+      // Flee if player too close
+      if(e.teleportCd>0)e.teleportCd-=dt;
+      if(dist<80&&e.teleportCd<=0){
+        // Teleport away
+        let nx,ny,attempts=0;
+        do{nx=2*TILE+Math.random()*11*TILE;ny=3*TILE+Math.random()*14*TILE;attempts++;}
+        while((!canMove(nx,ny,e.r)||Math.sqrt((player.x-nx)**2+(player.y-ny)**2)<120)&&attempts<20);
+        e.x=nx;e.y=ny;e.teleportCd=3;
+        for(let i=0;i<8;i++){particles.push({x:e.x,y:e.y,vx:(Math.random()-0.5)*80,vy:(Math.random()-0.5)*80,life:0.5,maxLife:0.5,r:3,color:'#a855f7'});}
+      }else if(dist<150){
+        // Move away
+        const nx=e.x-dx/dist*e.speed*dt;const ny=e.y-dy/dist*e.speed*dt;
+        if(canMove(nx,ny,e.r)){e.x=nx;e.y=ny;}
+      }
+      // Summon skeletons
+      e.summonTimer-=dt;
+      // Clean dead summons
+      e.summonIds=e.summonIds.filter(id=>enemies.some(o=>o._summonId===id&&o.hp>0));
+      if(e.summonTimer<=0&&e.summonIds.length<3){
+        e.summonTimer=5;
+        sfx('summon');
+        const count=1+Math.floor(Math.random()*2);
+        for(let i=0;i<count&&e.summonIds.length<3;i++){
+          const base=ENEMY_DEFS.skeleton;
+          const sa=Math.random()*Math.PI*2;
+          const sid=Math.random().toString(36).substr(2,6);
+          const summon={...base,type:'skeleton',
+            x:e.x+Math.cos(sa)*30,y:e.y+Math.sin(sa)*30,
+            hp:Math.ceil(base.hp*0.5),maxHp:Math.ceil(base.maxHp*0.5),
+            dmg:base.dmg,atkTimer:Math.random()*base.atkCd,hit:0,knockX:0,knockY:0,
+            _summonId:sid,_summonedBy:e};
+          enemies.push(summon);
+          e.summonIds.push(sid);
+          // Purple summon particles
+          for(let j=0;j<8;j++){particles.push({x:summon.x,y:summon.y,vx:(Math.random()-0.5)*60,vy:(Math.random()-0.5)*60,life:0.5,maxLife:0.5,r:3,color:'#a855f7'});}
+        }
+      }
+      // Weak direct attack
+      e.atkTimer-=dt;
+      if(e.atkTimer<=0&&dist<e.atkRange+player.r){e.atkTimer=e.atkCd;hitPlayer(e.dmg);}
+    }
+    // ─── SHIELD KNIGHT AI ───
+    else if(e.type==='shield_knight'){
+      e.shieldAngle=Math.atan2(dy,dx);
+      // Move toward player
+      if(dist>e.atkRange){
+        const nx=e.x+dx/dist*e.speed*dt;const ny=e.y+dy/dist*e.speed*dt;
+        if(canMove(nx,ny,e.r)){e.x=nx;e.y=ny;}
+      }
+      // Regular attack
+      e.atkTimer-=dt;
+      if(e.atkTimer<=0&&dist<e.atkRange+player.r){e.atkTimer=e.atkCd;hitPlayer(e.dmg);}
+      // Shield bash
+      e.bashTimer-=dt;
+      if(e.bashTimer<=0&&dist<e.atkRange+player.r+10){
+        e.bashTimer=4.0;
+        sfx('shield_block');haptic('medium');
+        // Knockback player
+        const kx=dx/dist*100,ky=dy/dist*100;
+        const pnx=player.x+kx*0.3,pny=player.y+ky*0.3;
+        if(canMove(pnx,pny,player.r)){player.x=pnx;player.y=pny;}
+        hitPlayer(Math.ceil(e.dmg*0.5));
+        for(let i=0;i<6;i++){particles.push({x:e.x+dx/dist*e.r,y:e.y+dy/dist*e.r,vx:dx/dist*40+(Math.random()-0.5)*40,vy:dy/dist*40+(Math.random()-0.5)*40,life:0.3,maxLife:0.3,r:3,color:'#60a5fa'});}
+      }
+    }
+    // ─── RANGED (archer) ───
+    else if(e.ranged){
       if(dist<120){const nx=e.x-dx/dist*e.speed*dt;const ny=e.y-dy/dist*e.speed*dt;if(canMove(nx,ny,e.r)){e.x=nx;e.y=ny;}}
       e.atkTimer-=dt;
       if(e.atkTimer<=0&&dist<e.atkRange){
         e.atkTimer=e.atkCd;
         projectiles.push({x:e.x,y:e.y,vx:dx/dist*200,vy:dy/dist*200,r:4,dmg:e.dmg,life:2,color:'#c084fc'});
       }
-    }else{
+    }
+    // ─── DEFAULT MELEE (slime, skeleton, boss) ───
+    else{
       if(dist>e.atkRange){
         const nx=e.x+dx/dist*e.speed*dt;
         const ny=e.y+dy/dist*e.speed*dt;
@@ -1243,6 +1520,7 @@ function draw(){
     ctx.save();
     ctx.translate(e.x,e.y);
     if(e.hit>0)ctx.globalAlpha=0.5+Math.sin(e.hit*40)*0.5;
+
     if(e.type==='boss'){
       ctx.fillStyle=e.color;
       ctx.beginPath();ctx.arc(0,0,e.r,0,Math.PI*2);ctx.fill();
@@ -1266,12 +1544,98 @@ function draw(){
     }else if(e.type==='archer'){
       ctx.fillStyle=e.color;
       ctx.beginPath();ctx.moveTo(0,-e.r);ctx.lineTo(e.r,e.r);ctx.lineTo(-e.r,e.r);ctx.closePath();ctx.fill();
+    }else if(e.type==='charger'){
+      // Red-orange rectangle wider than tall with horns
+      const shake=(e.chargeState==='telegraph')?(Math.random()-0.5)*4:0;
+      ctx.translate(shake,0);
+      if(e.chargeState==='telegraph'){
+        // Red glow telegraph
+        ctx.fillStyle='rgba(239,68,68,'+((0.3+Math.sin(Date.now()*0.02)*0.3))+')';
+        ctx.beginPath();ctx.arc(0,0,e.r+8,0,Math.PI*2);ctx.fill();
+      }
+      ctx.fillStyle=e.chargeState==='charging'?'#dc2626':e.color;
+      ctx.fillRect(-e.r-4,-e.r+2,e.r*2+8,e.r*2-4);
+      // Horns
+      ctx.fillStyle='#fbbf24';
+      ctx.beginPath();ctx.moveTo(-e.r+2,-e.r+2);ctx.lineTo(-e.r,-e.r-8);ctx.lineTo(-e.r+6,-e.r+2);ctx.fill();
+      ctx.beginPath();ctx.moveTo(e.r-6,-e.r+2);ctx.lineTo(e.r,-e.r-8);ctx.lineTo(e.r-2,-e.r+2);ctx.fill();
+      // Stunned stars
+      if(e.stunTimer>0){
+        for(let i=0;i<3;i++){
+          const sa=Date.now()*0.005+i*2.1;
+          const sx=Math.cos(sa)*12,sy=-e.r-12+Math.sin(sa*2)*3;
+          ctx.fillStyle='#fbbf24';ctx.font='10px system-ui';ctx.textAlign='center';
+          ctx.fillText('⭐',sx,sy);
+        }
+      }
+    }else if(e.type==='wolf'){
+      // Small gray circle
+      ctx.fillStyle=e.color;
+      ctx.beginPath();ctx.arc(0,0,e.r,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#6b7280';
+      ctx.beginPath();ctx.arc(0,1,e.r-2,0,Math.PI*2);ctx.fill();
+      // Pointy ears
+      ctx.fillStyle=e.color;
+      ctx.beginPath();ctx.moveTo(-6,-e.r+1);ctx.lineTo(-4,-e.r-5);ctx.lineTo(-2,-e.r+1);ctx.fill();
+      ctx.beginPath();ctx.moveTo(2,-e.r+1);ctx.lineTo(4,-e.r-5);ctx.lineTo(6,-e.r+1);ctx.fill();
+    }else if(e.type==='bomber'){
+      // Orange circle with fuse; pulse during countdown
+      let scale=1;
+      if(e.fuseTimer>=0){
+        const frac=1-e.fuseTimer/e.fuseMax;
+        scale=1+frac*0.3;
+        const pulseSpeed=5+frac*20;
+        ctx.fillStyle=Math.sin(Date.now()*0.001*pulseSpeed)>0?'#ef4444':e.color;
+      }else{
+        ctx.fillStyle=e.color;
+      }
+      ctx.beginPath();ctx.arc(0,0,e.r*scale,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#c2410c';
+      ctx.beginPath();ctx.arc(0,1,e.r*scale-3,0,Math.PI*2);ctx.fill();
+      // Fuse on top
+      ctx.strokeStyle='#854d0e';ctx.lineWidth=2;
+      ctx.beginPath();ctx.moveTo(0,-e.r*scale);ctx.lineTo(2,-e.r*scale-6);ctx.stroke();
+      // Fuse spark
+      ctx.fillStyle=['#fbbf24','#ef4444','#fff'][Math.floor(Math.random()*3)];
+      ctx.beginPath();ctx.arc(2+Math.random()*2,-e.r*scale-6+Math.random()*2,2,0,Math.PI*2);ctx.fill();
+    }else if(e.type==='necromancer'){
+      // Dark purple diamond with hood
+      ctx.fillStyle=e.color;
+      ctx.beginPath();ctx.moveTo(0,-e.r);ctx.lineTo(e.r,0);ctx.lineTo(0,e.r);ctx.lineTo(-e.r,0);ctx.closePath();ctx.fill();
+      // Hood (triangle on top)
+      ctx.fillStyle='#581c87';
+      ctx.beginPath();ctx.moveTo(-8,-e.r+4);ctx.lineTo(0,-e.r-8);ctx.lineTo(8,-e.r+4);ctx.closePath();ctx.fill();
+      // Summoning glow
+      if(e.summonTimer<1){
+        ctx.globalAlpha=0.4+Math.sin(Date.now()*0.01)*0.2;
+        ctx.fillStyle='#a855f7';
+        ctx.beginPath();ctx.arc(0,0,e.r+10,0,Math.PI*2);ctx.fill();
+        ctx.globalAlpha=1;
+      }
+    }else if(e.type==='shield_knight'){
+      // Gray square body
+      ctx.fillStyle=e.color;
+      ctx.fillRect(-e.r,-e.r,e.r*2,e.r*2);
+      ctx.fillStyle='#4b5563';
+      ctx.fillRect(-e.r+2,-e.r+2,e.r*2-4,e.r*2-4);
+      // Shield (blue square facing player)
+      const sa=e.shieldAngle||0;
+      ctx.save();
+      ctx.rotate(sa);
+      ctx.fillStyle='#3b82f6';
+      ctx.fillRect(e.r-4,-8,6,16);
+      ctx.fillStyle='#60a5fa';
+      ctx.fillRect(e.r-3,-6,4,12);
+      ctx.restore();
     }
-    const dx=player.x-e.x,dy=player.y-e.y,da=Math.atan2(dy,dx);
+
+    // Eyes (shared for all types)
+    const edx=player.x-e.x,edy=player.y-e.y,da=Math.atan2(edy,edx);
     ctx.fillStyle=e.eyeColor;
-    const ex=Math.cos(da)*3,ey=Math.sin(da)*3;
-    ctx.beginPath();ctx.arc(-4+ex,-3+ey,2.5,0,Math.PI*2);ctx.fill();
-    ctx.beginPath();ctx.arc(4+ex,-3+ey,2.5,0,Math.PI*2);ctx.fill();
+    const eex=Math.cos(da)*3,eey=Math.sin(da)*3;
+    ctx.beginPath();ctx.arc(-4+eex,-3+eey,2.5,0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.arc(4+eex,-3+eey,2.5,0,Math.PI*2);ctx.fill();
+    // HP bar
     if(e.hp<e.maxHp){
       ctx.fillStyle='rgba(0,0,0,0.5)';ctx.fillRect(-e.r,-e.r-8,e.r*2,5);
       ctx.fillStyle='#ef4444';ctx.fillRect(-e.r,-e.r-8,e.r*2*(e.hp/e.maxHp),5);
