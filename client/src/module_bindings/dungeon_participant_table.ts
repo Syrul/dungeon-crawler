@@ -10,8 +10,8 @@ import {
   type Infer as __Infer,
 } from "spacetimedb";
 
-export default {
-  dungeonId: __t.u64(),
-  clientGold: __t.option(__t.u64()),
-  clientXp: __t.option(__t.u64()),
-};
+export default __t.row({
+  id: __t.u64().primaryKey(),
+  dungeonId: __t.u64().name("dungeon_id"),
+  playerIdentity: __t.identity().name("player_identity"),
+});

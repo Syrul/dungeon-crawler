@@ -32,6 +32,8 @@ import {
 } from "spacetimedb";
 
 // Import and reexport all reducer arg types
+import AddInventoryItemReducer from "./add_inventory_item_reducer";
+export { AddInventoryItemReducer };
 import AttackReducer from "./attack_reducer";
 export { AttackReducer };
 import CompleteDungeonReducer from "./complete_dungeon_reducer";
@@ -66,6 +68,8 @@ import ActiveDungeonRow from "./active_dungeon_table";
 export { ActiveDungeonRow };
 import DungeonEnemyRow from "./dungeon_enemy_table";
 export { DungeonEnemyRow };
+import DungeonParticipantRow from "./dungeon_participant_table";
+export { DungeonParticipantRow };
 import EnemyTickScheduleRow from "./enemy_tick_schedule_table";
 export { EnemyTickScheduleRow };
 import InventoryItemRow from "./inventory_item_table";
@@ -82,6 +86,8 @@ import ActiveDungeon from "./active_dungeon_type";
 export { ActiveDungeon };
 import DungeonEnemy from "./dungeon_enemy_type";
 export { DungeonEnemy };
+import DungeonParticipant from "./dungeon_participant_type";
+export { DungeonParticipant };
 import EnemyTickSchedule from "./enemy_tick_schedule_type";
 export { EnemyTickSchedule };
 import InventoryItem from "./inventory_item_type";
@@ -117,6 +123,17 @@ const tablesSchema = __schema(
       { name: 'dungeon_enemy_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, DungeonEnemyRow),
+  __table({
+    name: 'dungeon_participant',
+    indexes: [
+      { name: 'id', algorithm: 'btree', columns: [
+        'id',
+      ] },
+    ],
+    constraints: [
+      { name: 'dungeon_participant_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, DungeonParticipantRow),
   __table({
     name: 'enemy_tick_schedule',
     indexes: [
@@ -176,6 +193,7 @@ const tablesSchema = __schema(
 
 /** The schema information for all reducers in this module. This is defined the same way as the reducers would have been defined in the server, except the body of the reducer is omitted in code generation. */
 const reducersSchema = __reducers(
+  __reducerSchema("add_inventory_item", AddInventoryItemReducer),
   __reducerSchema("attack", AttackReducer),
   __reducerSchema("complete_dungeon", CompleteDungeonReducer),
   __reducerSchema("discard_item", DiscardItemReducer),

@@ -11,7 +11,6 @@ import {
 } from "spacetimedb";
 
 export default {
-  dungeonId: __t.u64(),
-  clientGold: __t.option(__t.u64()),
-  clientXp: __t.option(__t.u64()),
+  itemDataJson: __t.string(),
+  rarity: __t.string(),
 };

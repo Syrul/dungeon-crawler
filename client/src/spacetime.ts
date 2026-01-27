@@ -31,20 +31,20 @@ class SpacetimeClient {
 
   async connect(): Promise<boolean> {
     try {
-      const token = localStorage.getItem(TOKEN_KEY) || undefined;
+      const token = sessionStorage.getItem(TOKEN_KEY) || undefined;
 
       const conn = await new Promise<DbConnection>((resolve, reject) => {
         const timeout = setTimeout(() => reject(new Error('Connection timeout')), 5000);
 
-        const builder = DbConnection.builder()
-          .uri(SPACETIMEDB_URI)
-          .moduleName(DB_NAME)
+        let builder = DbConnection.builder()
+          .withUri(SPACETIMEDB_URI)
+          .withModuleName(DB_NAME)
           .onConnect((conn, identity, _token) => {
             clearTimeout(timeout);
             console.log('[SpacetimeDB] Connected, identity:', identity.toHexString());
             // Store token for re-auth
             if (_token) {
-              localStorage.setItem(TOKEN_KEY, _token);
+              sessionStorage.setItem(TOKEN_KEY, _token);
             }
             this._state = { connected: true, identity: identity.toHexString() };
             this.notify();
@@ -62,7 +62,7 @@ class SpacetimeClient {
           });
 
         if (token) {
-          builder.token(token);
+          builder = builder.withToken(token);
         }
 
         builder.build();
@@ -94,6 +94,7 @@ class SpacetimeClient {
           'SELECT * FROM player_position',
           'SELECT * FROM loot_drop',
           'SELECT * FROM inventory_item',
+          'SELECT * FROM dungeon_participant',
         ]);
       console.log('[SpacetimeDB] Subscribed to tables');
     } catch (err) {
@@ -105,42 +106,212 @@ class SpacetimeClient {
 
   registerPlayer(name: string) {
     if (!this.conn) return;
-    this.conn.reducers.registerPlayer(name);
+    this.conn.reducers.registerPlayer({ name });
   }
 
   login() {
     if (!this.conn) return;
-    this.conn.reducers.login();
+    this.conn.reducers.login({});
   }
 
   updatePosition(dungeonId: bigint, x: number, y: number, facingX: number, facingY: number) {
     if (!this.conn) return;
-    this.conn.reducers.updatePosition(dungeonId, x, y, facingX, facingY);
+    this.conn.reducers.updatePosition({ dungeonId, x, y, facingX, facingY });
   }
 
   attack(dungeonId: bigint, targetEnemyId: bigint) {
     if (!this.conn) return;
-    this.conn.reducers.attack(dungeonId, targetEnemyId);
+    this.conn.reducers.attack({ dungeonId, targetEnemyId });
   }
 
   useDash(dungeonId: bigint, dirX: number, dirY: number) {
     if (!this.conn) return;
-    this.conn.reducers.useDash(dungeonId, dirX, dirY);
+    this.conn.reducers.useDash({ dungeonId, dirX, dirY });
   }
 
   pickupLoot(lootId: bigint) {
     if (!this.conn) return;
-    this.conn.reducers.pickupLoot(lootId);
+    this.conn.reducers.pickupLoot({ lootId });
+  }
+
+  addInventoryItem(itemDataJson: string, rarity: string) {
+    if (!this.conn) return;
+    this.conn.reducers.addInventoryItem({ itemDataJson, rarity });
+  }
+
+  completeDungeon(dungeonId: bigint, clientGold?: bigint, clientXp?: bigint) {
+    if (!this.conn) return;
+    this.conn.reducers.completeDungeon({ dungeonId, clientGold: clientGold ?? null, clientXp: clientXp ?? null });
+  }
+
+  /** Read current player data from subscribed tables */
+  getPlayerData(): { gold: number; level: number; xp: number; dungeonsCleared: number } | null {
+    if (!this.conn || !this._state.identity) return null;
+    try {
+      const players = (this.conn.db as any).player.iter();
+      for (const p of players) {
+        if (p.identity.toHexString() === this._state.identity) {
+          return {
+            gold: Number(p.gold),
+            level: Number(p.level),
+            xp: Number(p.xp),
+            dungeonsCleared: Number(p.dungeonsCleared),
+          };
+        }
+      }
+    } catch (e) {
+      console.warn('[SpacetimeDB] Failed to read player data:', e);
+    }
+    return null;
+  }
+
+  /** Read inventory items for current player */
+  getInventoryItems(): Array<{ itemDataJson: string; equippedSlot: string | null; cardDataJson: string | null }> {
+    if (!this.conn || !this._state.identity) return [];
+    try {
+      const items: Array<{ itemDataJson: string; equippedSlot: string | null; cardDataJson: string | null }> = [];
+      const iter = (this.conn.db as any).inventoryItem.iter();
+      for (const item of iter) {
+        if (item.ownerIdentity.toHexString() === this._state.identity) {
+          items.push({
+            itemDataJson: item.itemDataJson,
+            equippedSlot: item.equippedSlot ?? null,
+            cardDataJson: item.cardDataJson ?? null,
+          });
+        }
+      }
+      return items;
+    } catch (e) {
+      console.warn('[SpacetimeDB] Failed to read inventory:', e);
+      return [];
+    }
+  }
+
+  /** Listen for active_dungeon table inserts */
+  onDungeonInsert(cb: (dungeon: { id: bigint; ownerIdentity: string }) => void) {
+    if (!this.conn) return;
+    try {
+      (this.conn.db as any).activeDungeon.onInsert((ctx: any, row: any) => {
+        cb({ id: row.id, ownerIdentity: row.ownerIdentity.toHexString() });
+      });
+    } catch (e) {
+      console.warn('[SpacetimeDB] Failed to register dungeon insert listener:', e);
+    }
   }
 
   startDungeon() {
     if (!this.conn) return;
-    this.conn.reducers.startDungeon();
+    this.conn.reducers.startDungeon({});
   }
 
   enterRoom(dungeonId: bigint, roomIndex: number) {
     if (!this.conn) return;
-    this.conn.reducers.enterRoom(dungeonId, roomIndex);
+    this.conn.reducers.enterRoom({ dungeonId, roomIndex });
+  }
+
+  // --- Co-op listeners ---
+
+  /** Listen for other players' position changes */
+  onPlayerPositionChange(cb: (identity: string, dungeonId: bigint, x: number, y: number, fx: number, fy: number) => void) {
+    if (!this.conn) return;
+    try {
+      const self = this._state.identity;
+      const handler = (_ctx: any, row: any) => {
+        const id = row.identity.toHexString();
+        if (id === self) return;
+        cb(id, row.dungeonId, row.x, row.y, row.facingX, row.facingY);
+      };
+      (this.conn.db as any).playerPosition.onInsert(handler);
+      (this.conn.db as any).playerPosition.onUpdate((_ctx: any, _old: any, row: any) => {
+        const id = row.identity.toHexString();
+        if (id === self) return;
+        cb(id, row.dungeonId, row.x, row.y, row.facingX, row.facingY);
+      });
+    } catch (e) {
+      console.warn('[SpacetimeDB] Failed to register player position listener:', e);
+    }
+  }
+
+  /** Listen for enemy HP changes */
+  onEnemyChange(cb: (enemyId: bigint, hp: number, isAlive: boolean, roomIndex: number) => void) {
+    if (!this.conn) return;
+    try {
+      (this.conn.db as any).dungeonEnemy.onUpdate((_ctx: any, _old: any, row: any) => {
+        cb(row.id, row.hp, row.isAlive, row.roomIndex);
+      });
+    } catch (e) {
+      console.warn('[SpacetimeDB] Failed to register enemy change listener:', e);
+    }
+  }
+
+  /** Listen for loot drop inserts and updates */
+  onLootDropChange(cb: (loot: { id: bigint, x: number, y: number, itemDataJson: string, rarity: string, pickedUp: boolean }) => void) {
+    if (!this.conn) return;
+    try {
+      const handler = (_ctx: any, row: any) => {
+        cb({ id: row.id, x: row.x, y: row.y, itemDataJson: row.itemDataJson, rarity: row.rarity, pickedUp: row.pickedUp });
+      };
+      (this.conn.db as any).lootDrop.onInsert(handler);
+      (this.conn.db as any).lootDrop.onUpdate((_ctx: any, _old: any, row: any) => {
+        cb({ id: row.id, x: row.x, y: row.y, itemDataJson: row.itemDataJson, rarity: row.rarity, pickedUp: row.pickedUp });
+      });
+    } catch (e) {
+      console.warn('[SpacetimeDB] Failed to register loot drop listener:', e);
+    }
+  }
+
+  /** Listen for active_dungeon updates (room changes from other player) */
+  onDungeonUpdate(cb: (dungeon: { id: bigint, currentRoom: number, seed: bigint, depth: number, totalRooms: number }) => void) {
+    if (!this.conn) return;
+    try {
+      (this.conn.db as any).activeDungeon.onUpdate((_ctx: any, _old: any, row: any) => {
+        cb({ id: row.id, currentRoom: row.currentRoom, seed: row.seed, depth: row.depth, totalRooms: row.totalRooms });
+      });
+    } catch (e) {
+      console.warn('[SpacetimeDB] Failed to register dungeon update listener:', e);
+    }
+  }
+
+  /** Get server enemies for a dungeon+room, sorted by id */
+  getEnemiesForRoom(dungeonId: bigint, roomIndex: number): Array<{ id: bigint, hp: number, isAlive: boolean }> {
+    if (!this.conn) return [];
+    try {
+      const result: Array<{ id: bigint, hp: number, isAlive: boolean }> = [];
+      for (const e of (this.conn.db as any).dungeonEnemy.iter()) {
+        if (e.dungeonId === dungeonId && e.roomIndex === roomIndex) {
+          result.push({ id: e.id, hp: e.hp, isAlive: e.isAlive });
+        }
+      }
+      result.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+      return result;
+    } catch (e) {
+      console.warn('[SpacetimeDB] Failed to get enemies for room:', e);
+      return [];
+    }
+  }
+
+  /** Get the active dungeon (latest/highest ID) */
+  getActiveDungeon(): { id: bigint, currentRoom: number, seed: bigint, depth: number, totalRooms: number, ownerIdentity: string } | null {
+    if (!this.conn) return null;
+    try {
+      let latest: any = null;
+      for (const d of (this.conn.db as any).activeDungeon.iter()) {
+        if (!latest || d.id > latest.id) latest = d;
+      }
+      if (latest) {
+        return {
+          id: latest.id,
+          currentRoom: latest.currentRoom,
+          seed: latest.seed,
+          depth: latest.depth,
+          totalRooms: latest.totalRooms,
+          ownerIdentity: latest.ownerIdentity.toHexString(),
+        };
+      }
+    } catch (e) {
+      console.warn('[SpacetimeDB] Failed to get active dungeon:', e);
+    }
+    return null;
   }
 
   disconnect() {

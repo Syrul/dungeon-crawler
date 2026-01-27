@@ -10,8 +10,10 @@ import {
   type Infer as __Infer,
 } from "spacetimedb";
 
-export default {
+export default __t.object("DungeonParticipant", {
+  id: __t.u64(),
   dungeonId: __t.u64(),
-  clientGold: __t.option(__t.u64()),
-  clientXp: __t.option(__t.u64()),
-};
+  playerIdentity: __t.identity(),
+});
+
+

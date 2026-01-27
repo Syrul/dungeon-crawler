@@ -435,6 +435,7 @@ let lifetimeKills=0, lifetimeDungeons=0, lifetimeGold=0;
 // ─── SLOW-MO FOR LEVEL UP ───
 let slowMoTimer=0;
 let levelUpAnimTimer=0;
+let lastPositionSendTime=0;
 
 function xpToLevel(lv){return lv*50;}
 
@@ -551,6 +552,82 @@ function triggerLevelUpOverlay(){
 // ─── LOOT DROPS ───
 let lootDrops=[];
 let yggdrasilUsed=false; // reset per dungeon run
+
+// ─── CO-OP STATE ───
+interface OtherPlayer {
+  // rendered (interpolated) position
+  x: number; y: number; facingX: number; facingY: number;
+  // target from server
+  tx: number; ty: number; tfx: number; tfy: number;
+  lastUpdate: number;
+}
+let otherPlayers: Map<string, OtherPlayer> = new Map();
+let serverEnemyIds: bigint[] = []; // maps local enemy index → server enemy ID
+let serverLootMap: Map<string, {id: bigint, x: number, y: number, itemDataJson: string, rarity: string}> = new Map();
+
+export function updateOtherPlayer(id: string, x: number, y: number, fx: number, fy: number) {
+  const existing = otherPlayers.get(id);
+  if (existing) {
+    // Move current rendered position to where we are now, set new target
+    existing.tx = x; existing.ty = y;
+    existing.tfx = fx; existing.tfy = fy;
+    existing.lastUpdate = performance.now();
+  } else {
+    otherPlayers.set(id, {x, y, facingX: fx, facingY: fy, tx: x, ty: y, tfx: fx, tfy: fy, lastUpdate: performance.now()});
+  }
+}
+export function removeOtherPlayer(id: string) {
+  otherPlayers.delete(id);
+}
+function lerpOtherPlayers(dt: number) {
+  const LERP_SPEED = 12; // higher = snappier
+  otherPlayers.forEach((op) => {
+    op.x += (op.tx - op.x) * Math.min(1, LERP_SPEED * dt);
+    op.y += (op.ty - op.y) * Math.min(1, LERP_SPEED * dt);
+    op.facingX += (op.tfx - op.facingX) * Math.min(1, LERP_SPEED * dt);
+    op.facingY += (op.tfy - op.facingY) * Math.min(1, LERP_SPEED * dt);
+  });
+}
+export function getEnemies() { return enemies; }
+export function setServerEnemyIds(ids: bigint[]) { serverEnemyIds = ids; }
+export function getServerEnemyIds() { return serverEnemyIds; }
+export function syncEnemyHp(updates: Array<{id: bigint, hp: number, isAlive: boolean}>) {
+  for (const u of updates) {
+    const idx = serverEnemyIds.indexOf(u.id);
+    if (idx >= 0 && enemies[idx]) {
+      if (!u.isAlive && enemies[idx].hp > 0) {
+        enemies[idx].hp = 0;
+        // death particles
+        for(let i=0;i<10;i++){const a=Math.random()*Math.PI*2;const sp=40+Math.random()*60;particles.push({x:enemies[idx].x,y:enemies[idx].y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:0.5,maxLife:0.5,r:3,color:enemies[idx].color});}
+      } else if (u.hp < enemies[idx].hp) {
+        enemies[idx].hp = u.hp;
+        enemies[idx].hit = 0.1;
+      }
+    }
+  }
+}
+export function addServerLoot(loot: {id: bigint, x: number, y: number, itemDataJson: string, rarity: string}) {
+  const key = loot.id.toString();
+  if (serverLootMap.has(key)) return;
+  serverLootMap.set(key, loot);
+  // Add to lootDrops for rendering
+  const rarityColor = loot.rarity === 'rare' ? '#3b82f6' : loot.rarity === 'uncommon' ? '#22c55e' : loot.rarity === 'epic' ? '#a855f7' : loot.rarity === 'legendary' ? '#f97316' : '#fff';
+  lootDrops.push({
+    x: loot.x, y: loot.y, type: 'gear',
+    gear: { rarity: loot.rarity, rarityColor, icon: '📦', name: 'Loot' },
+    glow: 0, icon: '📦', bouncing: false, _serverLootId: loot.id,
+  });
+}
+export function removeServerLoot(id: bigint) {
+  const key = id.toString();
+  serverLootMap.delete(key);
+  lootDrops = lootDrops.filter(l => !l._serverLootId || l._serverLootId.toString() !== key);
+}
+export function syncRoom(roomIndex: number) {
+  if (roomIndex === currentRoom) return;
+  goToRoom(roomIndex, roomIndex > currentRoom ? 'top' : 'bottom');
+}
+export function getCurrentRoom() { return currentRoom; }
 
 function spawnLoot(x,y,enemyType){
   const table=DROP_TABLES[enemyType]||DROP_TABLES.slime;
@@ -888,6 +965,7 @@ function enterDungeon(){
   document.getElementById('hub-screen').style.display='none';
   inHub=false;
   resetGame();
+  callbacks.onStartDungeon?.();
 }
 
 function resetGame(){
@@ -1335,6 +1413,10 @@ function setupTouch(){
   const endJoy=e=>{for(const t of e.changedTouches)if(t.identifier===joystickTouchId){joystickActive=false;joystickTouchId=null;joyVec={x:0,y:0};resetThumb();}};
   zone.addEventListener('touchend',endJoy);
   zone.addEventListener('touchcancel',endJoy);
+  // Mouse/pointer support for desktop
+  zone.addEventListener('mousedown',e=>{e.preventDefault();if(joystickActive)return;joystickActive=true;updateJoy(e);});
+  window.addEventListener('mousemove',e=>{if(joystickActive)updateJoy(e);});
+  window.addEventListener('mouseup',()=>{if(joystickActive){joystickActive=false;joyVec={x:0,y:0};resetThumb();}});
 }
 
 function updateJoy(t){
@@ -1385,6 +1467,7 @@ function doAttack(){
         finalDmg*=2;e._gungnirHit=true;
       }
       hitEnemy(e,finalDmg,dx/dist,dy/dist);
+      callbacks.onAttack?.(enemies.indexOf(e));
       if(isCrit||ragnarok){
         dmgNumbers.push({x:e.x,y:e.y-e.r-15,val:ragnarok?'RAGNAROK!':'CRIT!',life:0.8,vy:-40,color:ragnarok?'#f97316':'#fbbf24'});
       }
@@ -1406,6 +1489,7 @@ function doDash(){
   abilities.dash.cd=hasPassive('lokiTrinket')?DASH_CD*0.5:DASH_CD;
   player.dashing=true;
   sfx('dash');haptic('light');
+  callbacks.onDash?.(player.dashDir.x,player.dashDir.y);
   player.dashTimer=DASH_DUR;
   player.invincible=DASH_DUR+0.1;
   for(let i=0;i<6;i++){particles.push({x:player.x,y:player.y,vx:(Math.random()-0.5)*60,vy:(Math.random()-0.5)*60,life:0.4,maxLife:0.4,r:4,color:'#60a5fa'});}
@@ -1598,6 +1682,7 @@ function goToRoom(idx,enterFrom){
     else player.y=(ROOM_H-1.5)*TILE;
     player.x=7*TILE+TILE/2;
     showRoomLabel(dungeonRooms[idx].name);
+    callbacks.onEnterRoom?.(idx);
   },200);
 }
 
@@ -1669,6 +1754,16 @@ function update(dt){
       player.facing={x:joyVec.x/mag,y:joyVec.y/mag};
     }
   }
+
+  // Throttled position sync (~15Hz)
+  const now=performance.now();
+  if(now-lastPositionSendTime>66){
+    lastPositionSendTime=now;
+    callbacks.onPlayerMove?.(player.x,player.y,player.facing.x,player.facing.y);
+  }
+
+  // Interpolate other players toward their server positions
+  lerpOtherPlayers(dt);
 
   // enemies
   enemies.forEach(e=>{
@@ -1929,6 +2024,9 @@ function update(dt){
         sfx('win');haptic('heavy');
       }
       l.picked=true;
+      const lootJson=l.type==='gear'?JSON.stringify(l.gear):l.type==='card'?JSON.stringify({cardType:l.cardType}):JSON.stringify({type:'gold',amount:l.amount});
+      const lootRarity=l.type==='gear'?(l.gear.rarity||'common'):l.type==='card'?'rare':'common';
+      callbacks.onPickupLoot?.(lootDrops.indexOf(l),lootJson,lootRarity);
     }
   });
   lootDrops=lootDrops.filter(l=>!l.picked);
@@ -1957,6 +2055,7 @@ function update(dt){
     gameOver=true;sfx('win');haptic('win');
     lifetimeDungeons++;
     dungeonDepth++;
+    callbacks.onCompleteDungeon?.();
     document.getElementById('complete-text').textContent='Run '+(dungeonDepth-1)+' cleared!';
     setTimeout(()=>{document.getElementById('screen-overlay').style.display='flex';},1000);
   }
@@ -2330,6 +2429,31 @@ function draw(){
     });
   }
   
+  // Other players (co-op)
+  otherPlayers.forEach((op, id) => {
+    ctx.save();
+    ctx.translate(op.x, op.y);
+    // Shadow
+    ctx.fillStyle='rgba(0,0,0,0.3)';ctx.beginPath();ctx.ellipse(0,PLAYER_R-2,PLAYER_R,PLAYER_R*0.4,0,0,Math.PI*2);ctx.fill();
+    // Body (blue tint to distinguish)
+    ctx.fillStyle='#3b82f6';ctx.beginPath();ctx.arc(0,0,PLAYER_R,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#2563eb';ctx.beginPath();ctx.arc(0,2,PLAYER_R-3,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#3b82f6';ctx.beginPath();ctx.arc(0,-1,PLAYER_R-5,0,Math.PI*2);ctx.fill();
+    // Eyes
+    const ofa=Math.atan2(op.facingY,op.facingX);
+    const opex=Math.cos(ofa)*4,opey=Math.sin(ofa)*4;
+    ctx.fillStyle='#fff';
+    ctx.beginPath();ctx.arc(-4+opex,-2+opey,3.5,0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.arc(4+opex,-2+opey,3.5,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#1e293b';
+    ctx.beginPath();ctx.arc(-4+opex*1.3,-2+opey*1.3,1.5,0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.arc(4+opex*1.3,-2+opey*1.3,1.5,0,Math.PI*2);ctx.fill();
+    // Name label
+    ctx.fillStyle='#93c5fd';ctx.font='10px system-ui';ctx.textAlign='center';ctx.textBaseline='bottom';
+    ctx.fillText('Player 2', 0, -PLAYER_R-4);
+    ctx.restore();
+  });
+
   // Full gear sparkle particles
   sparkleParticles.forEach(s=>{
     ctx.globalAlpha=(s.life/s.maxLife)*0.8;
@@ -2395,6 +2519,36 @@ function loop(t){
 // Now exported as startGame()
 
 // Export the init function
+export function restoreFromServer(data: {
+  gold?: number;
+  level?: number;
+  xp?: number;
+  dungeonDepth?: number;
+  inventory?: Array<{ itemDataJson: string; equippedSlot?: string | null; cardDataJson?: string | null }>;
+}) {
+  if (data.gold != null) gold = data.gold;
+  if (data.level != null) playerLevel = data.level;
+  if (data.xp != null) playerXP = data.xp;
+  if (data.dungeonDepth != null) dungeonDepth = data.dungeonDepth;
+  if (data.inventory) {
+    backpack = [];
+    equipped = { weapon: null, armor: null, accessory: null };
+    data.inventory.forEach(item => {
+      try {
+        const parsed = JSON.parse(item.itemDataJson);
+        if (item.equippedSlot && (item.equippedSlot === 'weapon' || item.equippedSlot === 'armor' || item.equippedSlot === 'accessory')) {
+          equipped[item.equippedSlot] = parsed;
+        } else {
+          backpack.push(parsed);
+        }
+      } catch (e) {
+        console.warn('[Game] Failed to parse inventory item:', e);
+      }
+    });
+  }
+  console.log('[Game] State restored from server — gold:', gold, 'level:', playerLevel, 'depth:', dungeonDepth);
+}
+
 export function initGame() {
   exposeGlobals();
   init();

@@ -91,6 +91,16 @@ pub struct InventoryItem {
     card_data_json: Option<String>,
 }
 
+/// Tracks which players are participating in a dungeon
+#[table(name = dungeon_participant, public)]
+pub struct DungeonParticipant {
+    #[primary_key]
+    #[auto_inc]
+    id: u64,
+    dungeon_id: u64,
+    player_identity: Identity,
+}
+
 /// Scheduler table for enemy AI ticks
 #[table(name = enemy_tick_schedule, scheduled(tick_enemies))]
 pub struct EnemyTickSchedule {
@@ -102,7 +112,7 @@ pub struct EnemyTickSchedule {
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
-const ATTACK_RANGE: f32 = 60.0;
+const ATTACK_RANGE: f32 = 100.0;
 const ENEMY_ATTACK_RANGE: f32 = 40.0;
 const ENEMY_MOVE_SPEED: f32 = 2.0;
 const LOOT_PICKUP_RANGE: f32 = 50.0;
@@ -148,20 +158,67 @@ pub fn login(ctx: &ReducerContext) -> Result<(), String> {
 
 // ─── Dungeon Lifecycle ─────────────────────────────────────────────────────────
 
-/// Start a new dungeon run. Generates the dungeon and spawns enemies for room 0.
+/// Start a new dungeon run, or join an existing one if another player already started.
 #[reducer]
 pub fn start_dungeon(ctx: &ReducerContext) -> Result<(), String> {
+    let _player = ctx.db.player().identity().find(ctx.sender)
+        .ok_or("Player not found")?;
+
+    // Check if an active dungeon with participants exists (pick latest by highest ID) — join it
+    let latest = ctx.db.active_dungeon().iter().max_by_key(|d| d.id);
+    if let Some(existing) = latest {
+        let dungeon_id = existing.id;
+        let has_participants = ctx.db.dungeon_participant().iter()
+            .any(|p| p.dungeon_id == dungeon_id);
+        if has_participants {
+            // Check not already a participant
+            let already_joined = ctx.db.dungeon_participant().iter()
+                .any(|p| p.dungeon_id == dungeon_id && p.player_identity == ctx.sender);
+            if !already_joined {
+                ctx.db.dungeon_participant().insert(DungeonParticipant {
+                    id: 0,
+                    dungeon_id,
+                    player_identity: ctx.sender,
+                });
+            }
+
+            // Initialize player position in the existing dungeon
+            if let Some(pos) = ctx.db.player_position().identity().find(ctx.sender) {
+                ctx.db.player_position().identity().update(PlayerPosition {
+                    dungeon_id,
+                    x: 400.0,
+                    y: 300.0,
+                    facing_x: 1.0,
+                    facing_y: 0.0,
+                    ..pos
+                });
+            } else {
+                ctx.db.player_position().insert(PlayerPosition {
+                    identity: ctx.sender,
+                    dungeon_id,
+                    x: 400.0,
+                    y: 300.0,
+                    facing_x: 1.0,
+                    facing_y: 0.0,
+                });
+            }
+
+            log::info!("Player {:?} joined existing dungeon {}", ctx.sender, dungeon_id);
+            return Ok(());
+        }
+    }
+
+    // No existing dungeon — create a new one
     let player = ctx.db.player().identity().find(ctx.sender)
         .ok_or("Player not found")?;
 
-    // Simple seed from timestamp
     let seed = ctx.timestamp.to_duration_since_unix_epoch()
         .unwrap_or_default().as_micros() as u64;
-    let total_rooms = 5 + player.dungeons_cleared; // more rooms as you progress
+    let total_rooms = 5 + player.dungeons_cleared;
     let depth = player.dungeons_cleared + 1;
 
     let dungeon = ctx.db.active_dungeon().insert(ActiveDungeon {
-        id: 0, // auto_inc
+        id: 0,
         owner_identity: ctx.sender,
         depth,
         current_room: 0,
@@ -169,7 +226,13 @@ pub fn start_dungeon(ctx: &ReducerContext) -> Result<(), String> {
         seed,
     });
 
-    // Spawn enemies for room 0
+    // Add owner as participant
+    ctx.db.dungeon_participant().insert(DungeonParticipant {
+        id: 0,
+        dungeon_id: dungeon.id,
+        player_identity: ctx.sender,
+    });
+
     spawn_enemies_for_room(ctx, dungeon.id, 0, depth, seed);
 
     // Initialize player position
@@ -193,9 +256,6 @@ pub fn start_dungeon(ctx: &ReducerContext) -> Result<(), String> {
         });
     }
 
-    // Ensure the enemy AI tick is scheduled
-    schedule_enemy_tick(ctx);
-
     log::info!("Dungeon started: id={}, depth={}, rooms={}", dungeon.id, depth, total_rooms);
     Ok(())
 }
@@ -205,8 +265,10 @@ pub fn start_dungeon(ctx: &ReducerContext) -> Result<(), String> {
 pub fn enter_room(ctx: &ReducerContext, dungeon_id: u64, room_index: u32) -> Result<(), String> {
     let dungeon = ctx.db.active_dungeon().id().find(dungeon_id)
         .ok_or("Dungeon not found")?;
-    if dungeon.owner_identity != ctx.sender {
-        return Err("Not your dungeon".into());
+    let is_participant = ctx.db.dungeon_participant().iter()
+        .any(|p| p.dungeon_id == dungeon_id && p.player_identity == ctx.sender);
+    if !is_participant {
+        return Err("Not a participant in this dungeon".into());
     }
     if room_index >= dungeon.total_rooms {
         return Err("Room index out of bounds".into());
@@ -220,13 +282,19 @@ pub fn enter_room(ctx: &ReducerContext, dungeon_id: u64, room_index: u32) -> Res
 
     spawn_enemies_for_room(ctx, dungeon_id, room_index, dungeon.depth, dungeon.seed);
 
-    // Reset player position for new room
-    if let Some(pos) = ctx.db.player_position().identity().find(ctx.sender) {
-        ctx.db.player_position().identity().update(PlayerPosition {
-            x: 400.0,
-            y: 300.0,
-            ..pos
-        });
+    // Reset all participants' positions for new room
+    let participant_ids: Vec<Identity> = ctx.db.dungeon_participant().iter()
+        .filter(|p| p.dungeon_id == dungeon_id)
+        .map(|p| p.player_identity)
+        .collect();
+    for pid in participant_ids {
+        if let Some(pos) = ctx.db.player_position().identity().find(pid) {
+            ctx.db.player_position().identity().update(PlayerPosition {
+                x: 400.0,
+                y: 300.0,
+                ..pos
+            });
+        }
     }
 
     log::info!("Entered room {} in dungeon {}", room_index, dungeon_id);
@@ -235,18 +303,20 @@ pub fn enter_room(ctx: &ReducerContext, dungeon_id: u64, room_index: u32) -> Res
 
 /// Complete a dungeon. Award XP and gold, increment dungeons_cleared.
 #[reducer]
-pub fn complete_dungeon(ctx: &ReducerContext, dungeon_id: u64) -> Result<(), String> {
+pub fn complete_dungeon(ctx: &ReducerContext, dungeon_id: u64, client_gold: Option<u64>, client_xp: Option<u64>) -> Result<(), String> {
     let dungeon = ctx.db.active_dungeon().id().find(dungeon_id)
         .ok_or("Dungeon not found")?;
-    if dungeon.owner_identity != ctx.sender {
-        return Err("Not your dungeon".into());
+    let is_participant = ctx.db.dungeon_participant().iter()
+        .any(|p| p.dungeon_id == dungeon_id && p.player_identity == ctx.sender);
+    if !is_participant {
+        return Err("Not a participant in this dungeon".into());
     }
 
     let player = ctx.db.player().identity().find(ctx.sender)
         .ok_or("Player not found")?;
 
-    let xp_reward = 50 * dungeon.depth as u64;
-    let gold_reward = 20 * dungeon.depth as u64;
+    let xp_reward = client_xp.unwrap_or(50 * dungeon.depth as u64);
+    let gold_reward = client_gold.unwrap_or(20 * dungeon.depth as u64);
     let new_xp = player.xp + xp_reward;
     let new_gold = player.gold + gold_reward;
     let new_cleared = player.dungeons_cleared + 1;
@@ -430,6 +500,23 @@ pub fn pickup_loot(ctx: &ReducerContext, loot_id: u64) -> Result<(), String> {
     });
 
     log::info!("Loot {} picked up by {:?}", loot_id, ctx.sender);
+    Ok(())
+}
+
+/// Add an inventory item directly (client-authoritative loot)
+#[reducer]
+pub fn add_inventory_item(ctx: &ReducerContext, item_data_json: String, rarity: String) -> Result<(), String> {
+    if ctx.db.player().identity().find(ctx.sender).is_none() {
+        return Err("Player not found".into());
+    }
+    ctx.db.inventory_item().insert(InventoryItem {
+        id: 0,
+        owner_identity: ctx.sender,
+        item_data_json,
+        equipped_slot: None,
+        card_data_json: None,
+    });
+    log::info!("Inventory item added for {:?} (rarity: {})", ctx.sender, rarity);
     Ok(())
 }
 
@@ -682,5 +769,14 @@ fn cleanup_dungeon(ctx: &ReducerContext, dungeon_id: u64) {
         .collect();
     for id in loots {
         ctx.db.loot_drop().id().delete(id);
+    }
+
+    // Delete participants
+    let participants: Vec<u64> = ctx.db.dungeon_participant().iter()
+        .filter(|p| p.dungeon_id == dungeon_id)
+        .map(|p| p.id)
+        .collect();
+    for id in participants {
+        ctx.db.dungeon_participant().id().delete(id);
     }
 }
