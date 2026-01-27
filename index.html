@@ -20,6 +20,7 @@ canvas{display:block;width:100%;height:100%}
 #xp-bar-fill{height:100%;background:linear-gradient(180deg,#a78bfa,#7c3aed);border-radius:4px;transition:width 0.3s;width:0%}
 #gold-display{position:absolute;top:env(safe-area-inset-top,12px);left:12px;color:#fbbf24;font-size:14px;font-weight:700;text-shadow:0 1px 4px rgba(0,0,0,0.8);pointer-events:none;margin-top:32px}
 #bag-btn{position:absolute;top:env(safe-area-inset-top,12px);left:12px;width:40px;height:40px;background:rgba(0,0,0,0.5);border:2px solid rgba(255,255,255,0.3);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;pointer-events:auto;cursor:pointer;-webkit-tap-highlight-color:transparent}
+#stats-btn{position:absolute;top:env(safe-area-inset-top,12px);left:58px;width:40px;height:40px;background:rgba(0,0,0,0.5);border:2px solid rgba(255,255,255,0.3);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;pointer-events:auto;cursor:pointer;-webkit-tap-highlight-color:transparent}
 #depth-display{position:absolute;top:env(safe-area-inset-top,12px);right:100px;color:#94a3b8;font-size:11px;font-weight:600;text-shadow:0 1px 3px rgba(0,0,0,0.8);pointer-events:none}
 #minimap{position:absolute;top:env(safe-area-inset-top,12px);right:12px;pointer-events:none;width:80px;height:80px}
 #room-label{position:absolute;top:calc(env(safe-area-inset-top,12px) + 30px);left:50%;transform:translateX(-50%);color:#fff;font-size:13px;font-weight:600;text-shadow:0 1px 4px rgba(0,0,0,0.8);pointer-events:none;opacity:0;transition:opacity 0.5s}
@@ -50,11 +51,37 @@ canvas{display:block;width:100%;height:100%}
 #death-screen button{padding:14px 40px;font-size:18px;font-weight:700;border:none;border-radius:12px;background:linear-gradient(180deg,#ef4444,#dc2626);color:#fff;cursor:pointer}
 
 /* Hub screen */
-#hub-screen{position:absolute;top:0;left:0;width:100%;height:100%;display:none;flex-direction:column;align-items:center;justify-content:flex-start;background:linear-gradient(180deg,#1a1a2e,#16213e);z-index:150;pointer-events:auto;overflow-y:auto;padding:60px 20px 40px}
-#hub-screen h1{color:#fbbf24;font-size:28px;text-shadow:0 2px 8px rgba(251,191,36,0.5);margin-bottom:16px}
-.hub-stats{color:#e2e8f0;font-size:14px;line-height:1.8;text-align:center;margin-bottom:20px}
-.hub-stats span{color:#fbbf24}
-#hub-screen button{padding:16px 48px;font-size:20px;font-weight:800;border:none;border-radius:14px;background:linear-gradient(180deg,#fbbf24,#f59e0b);color:#1a1a2e;cursor:pointer;box-shadow:0 4px 16px rgba(251,191,36,0.4);animation:pulse 2s infinite;margin-top:12px}
+#hub-screen{position:absolute;top:0;left:0;width:100%;height:100%;display:none;flex-direction:column;align-items:center;justify-content:flex-start;background:linear-gradient(180deg,#1a1a2e,#16213e);z-index:150;pointer-events:auto;overflow-y:auto;padding:40px 20px 40px}
+#hub-screen .hub-title{color:#94a3b8;font-size:12px;text-transform:uppercase;letter-spacing:3px;margin-bottom:8px}
+#hub-hero-name{color:#fbbf24;font-size:28px;font-weight:800;text-shadow:0 2px 8px rgba(251,191,36,0.5);margin-bottom:2px}
+#hub-hero-level{color:#a78bfa;font-size:14px;margin-bottom:16px}
+#hub-character-canvas{width:160px;height:160px;border-radius:50%;margin-bottom:16px}
+#hub-stats-row{display:flex;gap:16px;margin-bottom:12px}
+.hub-stat-box{background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:8px 14px;text-align:center;min-width:70px}
+.hub-stat-box .stat-val{color:#fbbf24;font-size:18px;font-weight:800}
+.hub-stat-box .stat-label{color:#94a3b8;font-size:10px;text-transform:uppercase;letter-spacing:1px}
+#hub-info{color:#94a3b8;font-size:13px;text-align:center;margin-bottom:16px;line-height:1.8}
+#hub-info span{color:#fbbf24}
+#hub-gear-slots{display:flex;gap:10px;margin-bottom:20px}
+.hub-gear-slot{width:64px;height:64px;background:rgba(255,255,255,0.06);border:2px solid rgba(255,255,255,0.15);border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px;color:#94a3b8;text-align:center}
+.hub-gear-slot .item-icon{font-size:24px;margin-bottom:2px}
+.hub-gear-slot .item-name{font-size:8px;line-height:1.1;color:#fff}
+#hub-buttons{display:flex;flex-direction:column;gap:10px;width:100%;max-width:280px;align-items:center}
+#hub-buttons button{width:100%;padding:14px;font-size:18px;font-weight:800;border:none;border-radius:14px;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,0.3)}
+#btn-enter-dungeon{background:linear-gradient(180deg,#fbbf24,#f59e0b);color:#1a1a2e;animation:pulse 2s infinite}
+#btn-hub-inventory{background:rgba(255,255,255,0.1);color:#e2e8f0;border:2px solid rgba(255,255,255,0.2)!important;font-size:15px!important}
+
+/* Stats panel */
+#stats-panel{position:absolute;top:0;left:0;width:100%;height:100%;display:none;flex-direction:column;align-items:center;background:rgba(0,0,0,0.94);z-index:180;pointer-events:auto;overflow-y:auto;padding:50px 20px 30px}
+#stats-panel h2{color:#fbbf24;font-size:22px;margin-bottom:16px}
+#stats-close{position:absolute;top:16px;right:16px;color:#fff;font-size:28px;cursor:pointer;width:40px;height:40px;display:flex;align-items:center;justify-content:center}
+.stats-section{width:100%;max-width:340px;margin-bottom:18px}
+.stats-section h3{color:#94a3b8;font-size:11px;text-transform:uppercase;margin-bottom:8px;letter-spacing:1px;border-bottom:1px solid rgba(255,255,255,0.08);padding-bottom:4px}
+.stat-row{display:flex;justify-content:space-between;padding:5px 0;color:#e2e8f0;font-size:14px}
+.stat-row .stat-name{color:#94a3b8}
+.stat-row .stat-value{color:#fff;font-weight:700}
+.stat-row .stat-bonus{color:#22c55e;font-size:12px;margin-left:4px}
+.stat-row .stat-base{color:#94a3b8;font-size:12px}
 
 /* Inventory panel */
 #inventory-panel{position:absolute;top:0;left:0;width:100%;height:100%;display:none;flex-direction:column;align-items:center;background:rgba(0,0,0,0.92);z-index:180;pointer-events:auto;overflow-y:auto;padding:50px 16px 30px}
@@ -72,6 +99,14 @@ canvas{display:block;width:100%;height:100%}
 .rarity-rare{border-color:#3b82f6}
 .rarity-epic{border-color:#a855f7}
 .rarity-legendary{border-color:#f97316}
+
+/* Level up overlay */
+#levelup-overlay{position:absolute;top:0;left:0;width:100%;height:100%;display:none;align-items:center;justify-content:center;flex-direction:column;z-index:90;pointer-events:none}
+#levelup-flash{position:absolute;top:0;left:0;width:100%;height:100%;background:radial-gradient(circle,rgba(251,191,36,0.6),rgba(251,191,36,0));opacity:0;transition:opacity 0.2s}
+#levelup-text{color:#fbbf24;font-size:48px;font-weight:900;text-shadow:0 0 30px rgba(251,191,36,0.8),0 0 60px rgba(251,191,36,0.4);opacity:0;transform:scale(0.3);letter-spacing:4px}
+#levelup-stats{color:#e2e8f0;font-size:16px;font-weight:700;text-shadow:0 2px 8px rgba(0,0,0,0.8);opacity:0;margin-top:12px;text-align:center;line-height:1.8}
+@keyframes levelupScale{0%{transform:scale(0.3);opacity:0}20%{transform:scale(1.3);opacity:1}40%{transform:scale(1);opacity:1}80%{transform:scale(1);opacity:1}100%{transform:scale(1.1);opacity:0}}
+@keyframes levelupStatsFade{0%{opacity:0;transform:translateY(20px)}20%{opacity:1;transform:translateY(0)}80%{opacity:1}100%{opacity:0}}
 </style>
 </head>
 <body>
@@ -83,11 +118,17 @@ canvas{display:block;width:100%;height:100%}
     <div id="xp-bar-bg"><div id="xp-bar-fill"></div></div>
   </div>
   <div id="bag-btn">🎒</div>
+  <div id="stats-btn">📊</div>
   <div id="gold-display">💰 0</div>
   <div id="depth-display"></div>
   <canvas id="minimap" width="80" height="80"></canvas>
   <div id="room-label"></div>
   <div id="pickup-notifications"></div>
+  <div id="levelup-overlay">
+    <div id="levelup-flash"></div>
+    <div id="levelup-text">LEVEL UP!</div>
+    <div id="levelup-stats"></div>
+  </div>
   <div id="joystick-zone"><div id="joystick-base"></div><div id="joystick-thumb"></div></div>
   <div id="ability-zone">
     <div class="ability-btn" id="btn-attack"><span>⚔</span><div class="cd-overlay"></div><span class="cd-text"></span></div>
@@ -98,15 +139,32 @@ canvas{display:block;width:100%;height:100%}
 <div id="screen-overlay"><h1>🏆 DUNGEON COMPLETE!</h1><p id="complete-text">You conquered the dungeon!</p><button id="btn-restart">RETURN TO HUB</button></div>
 <div id="death-screen"><h1>💀 YOU DIED</h1><p>The dungeon claims another soul...</p><button id="btn-retry">RETURN TO HUB</button></div>
 <div id="hub-screen">
-  <h1>⚔ ADVENTURER'S HUB</h1>
-  <div class="hub-stats" id="hub-stats"></div>
-  <button id="btn-enter-dungeon">ENTER DUNGEON</button>
+  <div class="hub-title">ADVENTURER'S HUB</div>
+  <canvas id="hub-character-canvas" width="160" height="160"></canvas>
+  <div id="hub-hero-name">Hero</div>
+  <div id="hub-hero-level">Level 1</div>
+  <div id="hub-stats-row">
+    <div class="hub-stat-box"><div class="stat-val" id="hub-atk">25</div><div class="stat-label">ATK</div></div>
+    <div class="hub-stat-box"><div class="stat-val" id="hub-def">0</div><div class="stat-label">DEF</div></div>
+    <div class="hub-stat-box"><div class="stat-val" id="hub-hp">100</div><div class="stat-label">HP</div></div>
+  </div>
+  <div id="hub-info"></div>
+  <div id="hub-gear-slots"></div>
+  <div id="hub-buttons">
+    <button id="btn-enter-dungeon">⚔ ENTER DUNGEON</button>
+    <button id="btn-hub-inventory">🎒 INVENTORY</button>
+  </div>
 </div>
 <div id="inventory-panel">
   <div id="inv-close">✕</div>
   <h2>🎒 Inventory</h2>
   <div class="inv-section"><h3>Equipped</h3><div class="inv-slots" id="equipped-slots"></div></div>
   <div class="inv-section"><h3>Backpack</h3><div class="inv-slots" id="backpack-slots"></div></div>
+</div>
+<div id="stats-panel">
+  <div id="stats-close">✕</div>
+  <h2>📊 Stats</h2>
+  <div id="stats-content"></div>
 </div>
 
 <script>
@@ -219,7 +277,6 @@ const GEAR_TYPES={
 const STAT_TYPES=['ATK','DEF','HP','Speed'];
 
 function pickRarity(depth){
-  // higher depth = slightly better loot
   let weights=RARITIES.map((r,i)=>r.weight*(i>=2?1+depth*0.1:1));
   let total=weights.reduce((a,b)=>a+b,0);
   let roll=Math.random()*total;
@@ -252,6 +309,13 @@ let baseMaxHp=100,baseAtk=0,baseDef=0,baseSpeed=0;
 let equipped={weapon:null,armor:null,accessory:null};
 let backpack=[]; // max 12
 
+// ─── LIFETIME STATS ───
+let lifetimeKills=0, lifetimeDungeons=0, lifetimeGold=0;
+
+// ─── SLOW-MO FOR LEVEL UP ───
+let slowMoTimer=0;
+let levelUpAnimTimer=0;
+
 function xpToLevel(lv){return lv*50;}
 
 function getGearStats(){
@@ -265,6 +329,38 @@ function totalDef(){return baseDef+getGearStats().DEF;}
 function totalMaxHp(){return baseMaxHp+getGearStats().HP;}
 function totalSpeed(){return 160+baseSpeed+getGearStats().Speed*10;}
 
+// ─── PLAYER VISUAL PROGRESSION ───
+function getPlayerColor(){
+  if(playerLevel>=10) return {main:'#fbbf24',mid:'#d97706',light:'#fde68a'}; // gold
+  if(playerLevel>=7) return {main:'#a855f7',mid:'#7e22ce',light:'#c4b5fd'}; // purple
+  if(playerLevel>=4) return {main:'#22c55e',mid:'#16a34a',light:'#86efac'}; // green
+  return {main:'#3b82f6',mid:'#2563eb',light:'#93c5fd'}; // blue
+}
+
+function getPlayerRadius(){
+  return PLAYER_R + Math.min(playerLevel-1,12)*0.5; // +0.5 per level, capped at +6
+}
+
+function getGlowIntensity(){
+  return Math.min(playerLevel/10, 1.0); // 0.1 at lv1, 1.0 at lv10+
+}
+
+function getAttackRange(){
+  return ATTACK_RANGE + (playerLevel-1)*2; // slightly bigger slash per level
+}
+
+function getDashDist(){
+  return DASH_DIST + (playerLevel-1)*5; // slightly more dash per level
+}
+
+function hasFullGear(){
+  return equipped.weapon && equipped.armor && equipped.accessory;
+}
+
+// ─── SPARKLE PARTICLES (full gear set) ───
+let sparkleTimer=0;
+let sparkleParticles=[];
+
 function gainXP(amount){
   playerXP+=amount;
   let needed=xpToLevel(playerLevel);
@@ -275,6 +371,13 @@ function gainXP(amount){
     player.maxHp=totalMaxHp();
     player.hp=player.maxHp;
     sfx('levelup');haptic('win');
+    
+    // Level up overlay animation
+    triggerLevelUpOverlay();
+    
+    // Slow-mo for 3 seconds
+    slowMoTimer=3.0;
+    
     showPickup('LEVEL UP! Lv '+playerLevel,'#fbbf24');
     // golden particles
     for(let i=0;i<20;i++){
@@ -285,15 +388,35 @@ function gainXP(amount){
   }
 }
 
+function triggerLevelUpOverlay(){
+  const overlay=document.getElementById('levelup-overlay');
+  const flash=document.getElementById('levelup-flash');
+  const text=document.getElementById('levelup-text');
+  const stats=document.getElementById('levelup-stats');
+  
+  overlay.style.display='flex';
+  flash.style.opacity='1';
+  text.style.animation='none';
+  stats.style.animation='none';
+  
+  // Force reflow
+  void text.offsetWidth;
+  
+  text.style.animation='levelupScale 3s forwards';
+  stats.innerHTML=`+10 HP &nbsp; +2 ATK &nbsp; +1 DEF`;
+  stats.style.animation='levelupStatsFade 3s forwards';
+  
+  setTimeout(()=>{flash.style.opacity='0';},300);
+  setTimeout(()=>{overlay.style.display='none';text.style.animation='none';stats.style.animation='none';},3000);
+}
+
 // ─── LOOT DROPS ───
-let lootDrops=[]; // {x,y,type:'gold'|'gear',amount,gear,glow}
+let lootDrops=[];
 
 function spawnLoot(x,y,enemyType){
   const isBoss=enemyType==='boss';
-  // gold always
   const goldAmt=isBoss?50+Math.floor(Math.random()*50):5+Math.floor(Math.random()*15);
   lootDrops.push({x:x+(Math.random()-0.5)*20,y:y+(Math.random()-0.5)*20,type:'gold',amount:goldAmt,glow:0,icon:'💰'});
-  // gear chance
   const gearChance=isBoss?1:0.3;
   if(Math.random()<gearChance){
     const slots=['weapon','armor','accessory'];
@@ -326,10 +449,10 @@ function addDoor(r,side){
 }
 
 // ─── RANDOM DUNGEON GENERATION ───
-let dungeonRooms=[]; // generated room definitions
+let dungeonRooms=[];
 
 function generateDungeon(depth){
-  const numRooms=5+Math.floor(Math.random()*4); // 5-8
+  const numRooms=5+Math.floor(Math.random()*4);
   const enemyTypes=['slime','skeleton','archer'];
   const defs=[];
   for(let i=0;i<numRooms;i++){
@@ -342,13 +465,11 @@ function generateDungeon(depth){
     let enList=[];
     if(isBoss){
       enList.push({type:'boss',x:7,y:8});
-      // add some minions at higher depths
       if(depth>=3){enList.push({type:'slime',x:4,y:12});enList.push({type:'slime',x:10,y:12});}
     }else{
       const numEnemies=2+Math.floor(Math.random()*3)+Math.floor(depth*0.5);
       for(let j=0;j<numEnemies;j++){
         const avail=depth>=3?enemyTypes:depth>=2?['slime','skeleton']:['slime'];
-        // later rooms in dungeon can have harder enemies
         const pool=i>=numRooms/2?enemyTypes:avail;
         const type=pool[Math.floor(Math.random()*pool.length)];
         const ex=2+Math.floor(Math.random()*11);
@@ -373,6 +494,106 @@ let shakeTimer=0,shakeIntensity=0;
 let roomTransition=0,roomTransAlpha=0;
 let lastTime=0;
 
+// ─── HUB AMBIENT PARTICLES ───
+let hubParticles=[];
+let hubAnimFrame=null;
+
+function startHubAmbient(){
+  const hc=document.getElementById('hub-character-canvas');
+  const hctx=hc.getContext('2d');
+  hubParticles=[];
+  for(let i=0;i<30;i++){
+    hubParticles.push({
+      x:Math.random()*160,y:Math.random()*160,
+      vx:(Math.random()-0.5)*0.3,vy:-0.2-Math.random()*0.3,
+      r:1+Math.random()*2,alpha:Math.random(),
+      color:['#fbbf24','#a78bfa','#60a5fa','#fff'][Math.floor(Math.random()*4)]
+    });
+  }
+  function drawHubChar(){
+    hctx.clearRect(0,0,160,160);
+    
+    // Ambient particles
+    hubParticles.forEach(p=>{
+      p.x+=p.vx;p.y+=p.vy;
+      p.alpha+=Math.sin(Date.now()*0.003+p.x)*0.01;
+      if(p.y<-5){p.y=165;p.x=Math.random()*160;}
+      if(p.x<-5||p.x>165){p.x=Math.random()*160;}
+      hctx.globalAlpha=Math.max(0,Math.min(1,p.alpha*0.4));
+      hctx.fillStyle=p.color;
+      hctx.beginPath();hctx.arc(p.x,p.y,p.r,0,Math.PI*2);hctx.fill();
+    });
+    hctx.globalAlpha=1;
+    
+    const cx=80,cy=80;
+    const colors=getPlayerColor();
+    const pr=getPlayerRadius()*2; // bigger for hub display
+    const glowI=getGlowIntensity();
+    
+    // Glow ring
+    if(glowI>0.05){
+      const gradient=hctx.createRadialGradient(cx,cy,pr,cx,cy,pr+15+glowI*10);
+      gradient.addColorStop(0,`rgba(251,191,36,${glowI*0.5})`);
+      gradient.addColorStop(1,'rgba(251,191,36,0)');
+      hctx.fillStyle=gradient;
+      hctx.beginPath();hctx.arc(cx,cy,pr+15+glowI*10,0,Math.PI*2);hctx.fill();
+    }
+    
+    // Shadow
+    hctx.fillStyle='rgba(0,0,0,0.3)';
+    hctx.beginPath();hctx.ellipse(cx,cy+pr+4,pr,pr*0.3,0,0,Math.PI*2);hctx.fill();
+    
+    // Body
+    hctx.fillStyle=colors.main;
+    hctx.beginPath();hctx.arc(cx,cy,pr,0,Math.PI*2);hctx.fill();
+    hctx.fillStyle=colors.mid;
+    hctx.beginPath();hctx.arc(cx,cy+2,pr-3,0,Math.PI*2);hctx.fill();
+    hctx.fillStyle=colors.main;
+    hctx.beginPath();hctx.arc(cx,cy-1,pr-5,0,Math.PI*2);hctx.fill();
+    
+    // Eyes
+    hctx.fillStyle='#fff';
+    hctx.beginPath();hctx.arc(cx-6,cy-3,5,0,Math.PI*2);hctx.fill();
+    hctx.beginPath();hctx.arc(cx+6,cy-3,5,0,Math.PI*2);hctx.fill();
+    hctx.fillStyle='#1e293b';
+    hctx.beginPath();hctx.arc(cx-5,cy-3,2.5,0,Math.PI*2);hctx.fill();
+    hctx.beginPath();hctx.arc(cx+7,cy-3,2.5,0,Math.PI*2);hctx.fill();
+    
+    // Equipped gear icons floating around
+    const gearIcons=[];
+    if(equipped.weapon) gearIcons.push(equipped.weapon.icon);
+    if(equipped.armor) gearIcons.push(equipped.armor.icon);
+    if(equipped.accessory) gearIcons.push(equipped.accessory.icon);
+    gearIcons.forEach((icon,i)=>{
+      const angle=-Math.PI/2+i*(Math.PI*2/3)+Date.now()*0.001;
+      const gx=cx+Math.cos(angle)*(pr+18);
+      const gy=cy+Math.sin(angle)*(pr+18);
+      hctx.font='16px system-ui';hctx.textAlign='center';hctx.textBaseline='middle';
+      hctx.fillText(icon,gx,gy);
+    });
+    
+    // Full gear sparkle
+    if(hasFullGear()){
+      for(let i=0;i<3;i++){
+        const sa=Date.now()*0.002+i*2.1;
+        const sx=cx+Math.cos(sa)*(pr+8+Math.sin(Date.now()*0.005+i)*5);
+        const sy=cy+Math.sin(sa)*(pr+8+Math.cos(Date.now()*0.004+i)*5);
+        hctx.globalAlpha=0.5+Math.sin(Date.now()*0.008+i)*0.3;
+        hctx.fillStyle='#fbbf24';
+        hctx.beginPath();hctx.arc(sx,sy,1.5,0,Math.PI*2);hctx.fill();
+      }
+      hctx.globalAlpha=1;
+    }
+    
+    hubAnimFrame=requestAnimationFrame(drawHubChar);
+  }
+  drawHubChar();
+}
+
+function stopHubAmbient(){
+  if(hubAnimFrame){cancelAnimationFrame(hubAnimFrame);hubAnimFrame=null;}
+}
+
 // ─── INIT ───
 function init(){
   canvas=document.getElementById('game');
@@ -390,7 +611,10 @@ function init(){
   document.getElementById('btn-dash').addEventListener('click',doDash);
   document.getElementById('btn-enter-dungeon').addEventListener('click',enterDungeon);
   document.getElementById('bag-btn').addEventListener('click',openInventory);
+  document.getElementById('stats-btn').addEventListener('click',openStats);
   document.getElementById('inv-close').addEventListener('click',closeInventory);
+  document.getElementById('stats-close').addEventListener('click',closeStats);
+  document.getElementById('btn-hub-inventory').addEventListener('click',openInventory);
   requestAnimationFrame(loop);
 }
 
@@ -406,16 +630,37 @@ function resize(){
 
 function showHub(){
   inHub=true;gameStarted=false;gameOver=false;gameDead=false;
-  const gs=getGearStats();
-  let statsHtml=`<span>Lv ${playerLevel}</span> — XP: ${playerXP}/${xpToLevel(playerLevel)}<br>`;
-  statsHtml+=`HP: <span>${totalMaxHp()}</span> | ATK: <span>${totalAtk()}</span> | DEF: <span>${totalDef()}</span><br>`;
-  statsHtml+=`💰 <span>${gold}</span> Gold<br>`;
-  statsHtml+=`Dungeon Depth: <span>Run ${dungeonDepth}</span>`;
-  document.getElementById('hub-stats').innerHTML=statsHtml;
+  
+  document.getElementById('hub-hero-level').textContent='Level '+playerLevel;
+  document.getElementById('hub-atk').textContent=totalAtk();
+  document.getElementById('hub-def').textContent=totalDef();
+  document.getElementById('hub-hp').textContent=totalMaxHp();
+  
+  let info=`💰 <span>${gold}</span> Gold &nbsp;·&nbsp; Dungeon Depth: <span>${dungeonDepth}</span>`;
+  document.getElementById('hub-info').innerHTML=info;
+  
+  // Gear slots
+  const gearDiv=document.getElementById('hub-gear-slots');
+  gearDiv.innerHTML='';
+  ['weapon','armor','accessory'].forEach(slot=>{
+    const item=equipped[slot];
+    const el=document.createElement('div');
+    el.className='hub-gear-slot';
+    if(item){
+      el.style.borderColor=item.rarityColor;
+      el.innerHTML=`<div class="item-icon">${item.icon}</div><div class="item-name" style="color:${item.rarityColor}">${item.name}</div>`;
+    }else{
+      el.innerHTML=`<div class="item-icon" style="opacity:0.3">—</div><div class="item-name">${slot}</div>`;
+    }
+    gearDiv.appendChild(el);
+  });
+  
   document.getElementById('hub-screen').style.display='flex';
+  startHubAmbient();
 }
 
 function enterDungeon(){
+  stopHubAmbient();
   document.getElementById('hub-screen').style.display='none';
   inHub=false;
   resetGame();
@@ -430,8 +675,10 @@ function resetGame(){
   enemies=[];
   lootDrops=[];
   projectiles=[];
+  sparkleParticles=[];
   abilities.attack.cd=0;abilities.dash.cd=0;
   gameOver=false;gameDead=false;
+  slowMoTimer=0;
   dungeonRooms=generateDungeon(dungeonDepth);
   rooms=dungeonRooms.map(d=>{const m=makeRoom();d.doors.forEach(s=>addDoor(m,s));return m;});
   spawnEnemies();
@@ -446,6 +693,48 @@ function startGame(){
   showHub();
 }
 
+// ─── STATS PANEL ───
+function openStats(){
+  renderStats();
+  document.getElementById('stats-panel').style.display='flex';
+}
+function closeStats(){
+  document.getElementById('stats-panel').style.display='none';
+}
+function renderStats(){
+  const gs=getGearStats();
+  const content=document.getElementById('stats-content');
+  let html='';
+  
+  html+=`<div class="stats-section"><h3>Character</h3>`;
+  html+=`<div class="stat-row"><span class="stat-name">Level</span><span class="stat-value">${playerLevel}</span></div>`;
+  html+=`<div class="stat-row"><span class="stat-name">XP</span><span class="stat-value">${playerXP} / ${xpToLevel(playerLevel)}</span></div>`;
+  html+=`</div>`;
+  
+  html+=`<div class="stats-section"><h3>Combat Stats</h3>`;
+  const atkBase=BASE_ATTACK_DMG+baseAtk;
+  const atkGear=gs.ATK;
+  html+=`<div class="stat-row"><span class="stat-name">ATK</span><span class="stat-value">${atkBase+atkGear}${atkGear?` <span class="stat-bonus">(+${atkGear})</span>`:''}</span></div>`;
+  const defBase=baseDef;
+  const defGear=gs.DEF;
+  html+=`<div class="stat-row"><span class="stat-name">DEF</span><span class="stat-value">${defBase+defGear}${defGear?` <span class="stat-bonus">(+${defGear})</span>`:''}</span></div>`;
+  const hpBase=baseMaxHp;
+  const hpGear=gs.HP;
+  html+=`<div class="stat-row"><span class="stat-name">HP</span><span class="stat-value">${hpBase+hpGear}${hpGear?` <span class="stat-bonus">(+${hpGear})</span>`:''}</span></div>`;
+  const spdBase=160+baseSpeed;
+  const spdGear=gs.Speed*10;
+  html+=`<div class="stat-row"><span class="stat-name">Speed</span><span class="stat-value">${spdBase+spdGear}${spdGear?` <span class="stat-bonus">(+${spdGear})</span>`:''}</span></div>`;
+  html+=`</div>`;
+  
+  html+=`<div class="stats-section"><h3>Lifetime</h3>`;
+  html+=`<div class="stat-row"><span class="stat-name">Enemies Killed</span><span class="stat-value">${lifetimeKills}</span></div>`;
+  html+=`<div class="stat-row"><span class="stat-name">Dungeons Cleared</span><span class="stat-value">${lifetimeDungeons}</span></div>`;
+  html+=`<div class="stat-row"><span class="stat-name">Gold Earned</span><span class="stat-value">${lifetimeGold}</span></div>`;
+  html+=`</div>`;
+  
+  content.innerHTML=html;
+}
+
 // ─── INVENTORY UI ───
 function openInventory(){
   renderInventory();
@@ -457,7 +746,6 @@ function closeInventory(){
 
 let longPressTimer=null;
 function renderInventory(){
-  // Equipped
   const eqDiv=document.getElementById('equipped-slots');
   eqDiv.innerHTML='';
   ['weapon','armor','accessory'].forEach(slot=>{
@@ -474,7 +762,6 @@ function renderInventory(){
     }
     eqDiv.appendChild(el);
   });
-  // Backpack
   const bpDiv=document.getElementById('backpack-slots');
   bpDiv.innerHTML='';
   for(let i=0;i<12;i++){
@@ -604,18 +891,21 @@ function doAttack(){
   sfx('attack');haptic('light');
   const fx=player.facing.x,fy=player.facing.y;
   const dmg=totalAtk();
+  const atkRange=getAttackRange();
   enemies.forEach(e=>{
     if(e.hp<=0)return;
     const dx=e.x-player.x,dy=e.y-player.y;
     const dist=Math.sqrt(dx*dx+dy*dy);
-    if(dist<ATTACK_RANGE+e.r){
+    if(dist<atkRange+e.r){
       hitEnemy(e,dmg,dx/dist,dy/dist);
     }
   });
+  // Slash particles scale with level
+  const slashSize=20+playerLevel*1.5;
   for(let i=0;i<8;i++){
     const a=Math.atan2(fy,fx)+((Math.random()-0.5)*1.2);
     const sp=100+Math.random()*80;
-    particles.push({x:player.x+fx*20,y:player.y+fy*20,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:0.3,maxLife:0.3,r:3+Math.random()*2,color:'#fbbf24'});
+    particles.push({x:player.x+fx*slashSize,y:player.y+fy*slashSize,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:0.3,maxLife:0.3,r:3+Math.random()*2+playerLevel*0.2,color:'#fbbf24'});
   }
 }
 
@@ -641,6 +931,7 @@ function hitEnemy(e,dmg,nx,ny){
   for(let i=0;i<5;i++){particles.push({x:e.x,y:e.y,vx:nx*60+(Math.random()-0.5)*80,vy:ny*60+(Math.random()-0.5)*80,life:0.35,maxLife:0.35,r:2+Math.random()*3,color:e.color});}
   if(e.hp<=0){
     sfx('kill');haptic('kill');
+    lifetimeKills++;
     for(let i=0;i<12;i++){const a=Math.random()*Math.PI*2;const sp=40+Math.random()*80;particles.push({x:e.x,y:e.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:0.6,maxLife:0.6,r:3+Math.random()*4,color:e.color});}
     gainXP(e.xp);
     spawnLoot(e.x,e.y,e.type);
@@ -717,6 +1008,13 @@ let projectiles=[];
 // ─── UPDATE ───
 function update(dt){
   if(!gameStarted||gameOver||gameDead)return;
+  
+  // Slow-mo effect
+  if(slowMoTimer>0){
+    slowMoTimer-=dt;
+    dt*=0.3; // 30% speed during level up
+  }
+  
   if(abilities.attack.cd>0)abilities.attack.cd=Math.max(0,abilities.attack.cd-dt);
   if(abilities.dash.cd>0)abilities.dash.cd=Math.max(0,abilities.dash.cd-dt);
   if(player.invincible>0)player.invincible-=dt;
@@ -724,11 +1022,29 @@ function update(dt){
   if(shakeTimer>0)shakeTimer-=dt;
   if(roomTransition>0){roomTransition-=dt;roomTransAlpha=roomTransition>0.2?1:roomTransition/0.2;}
 
+  // Sparkle effect for full gear
+  if(hasFullGear()){
+    sparkleTimer+=dt;
+    if(sparkleTimer>0.15){
+      sparkleTimer=0;
+      const a=Math.random()*Math.PI*2;
+      const dist=getPlayerRadius()+4+Math.random()*8;
+      sparkleParticles.push({
+        x:player.x+Math.cos(a)*dist,
+        y:player.y+Math.sin(a)*dist,
+        life:0.6,maxLife:0.6,r:1+Math.random()*1.5
+      });
+    }
+  }
+  sparkleParticles.forEach(s=>{s.life-=dt;s.y-=15*dt;});
+  sparkleParticles=sparkleParticles.filter(s=>s.life>0);
+
   // player movement
   player.speed=totalSpeed();
   if(player.dashing){
     player.dashTimer-=dt;
-    const sp=DASH_DIST/DASH_DUR;
+    const dashDist=getDashDist();
+    const sp=dashDist/DASH_DUR;
     const nx=player.x+player.dashDir.x*sp*dt;
     const ny=player.y+player.dashDir.y*sp*dt;
     if(canMove(nx,ny,player.r)){player.x=nx;player.y=ny;}
@@ -796,6 +1112,7 @@ function update(dt){
     if(Math.sqrt(dx*dx+dy*dy)<player.r+14){
       if(l.type==='gold'){
         gold+=l.amount;
+        lifetimeGold+=l.amount;
         showPickup('+ '+l.amount+' Gold','#fbbf24');
         sfx('pickup');
       }else if(l.type==='gear'){
@@ -831,6 +1148,7 @@ function update(dt){
   // boss dead → dungeon complete
   if(dungeonRooms[currentRoom].isBoss&&enemies.every(e=>e.hp<=0)&&!gameOver){
     gameOver=true;sfx('win');haptic('win');
+    lifetimeDungeons++;
     dungeonDepth++;
     document.getElementById('complete-text').textContent='Run '+(dungeonDepth-1)+' cleared!';
     setTimeout(()=>{document.getElementById('screen-overlay').style.display='flex';},1000);
@@ -972,10 +1290,29 @@ function draw(){
   ctx.save();
   ctx.translate(player.x,player.y);
   if(player.invincible>0)ctx.globalAlpha=0.4+Math.sin(player.invincible*30)*0.3;
-  ctx.fillStyle='rgba(0,0,0,0.3)';ctx.beginPath();ctx.ellipse(0,player.r-2,player.r,player.r*0.4,0,0,Math.PI*2);ctx.fill();
-  ctx.fillStyle='#3b82f6';ctx.beginPath();ctx.arc(0,0,player.r,0,Math.PI*2);ctx.fill();
-  ctx.fillStyle='#2563eb';ctx.beginPath();ctx.arc(0,2,player.r-3,0,Math.PI*2);ctx.fill();
-  ctx.fillStyle='#3b82f6';ctx.beginPath();ctx.arc(0,-1,player.r-5,0,Math.PI*2);ctx.fill();
+  
+  const colors=getPlayerColor();
+  const pr=getPlayerRadius();
+  const glowI=getGlowIntensity();
+  
+  // Glow ring (level-based)
+  if(glowI>0.05){
+    const gradient=ctx.createRadialGradient(0,0,pr,0,0,pr+8+glowI*12);
+    gradient.addColorStop(0,`rgba(251,191,36,${glowI*0.4})`);
+    gradient.addColorStop(1,'rgba(251,191,36,0)');
+    ctx.fillStyle=gradient;
+    ctx.beginPath();ctx.arc(0,0,pr+8+glowI*12,0,Math.PI*2);ctx.fill();
+  }
+  
+  // Shadow
+  ctx.fillStyle='rgba(0,0,0,0.3)';ctx.beginPath();ctx.ellipse(0,pr-2,pr,pr*0.4,0,0,Math.PI*2);ctx.fill();
+  
+  // Body with level-based color
+  ctx.fillStyle=colors.main;ctx.beginPath();ctx.arc(0,0,pr,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle=colors.mid;ctx.beginPath();ctx.arc(0,2,pr-3,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle=colors.main;ctx.beginPath();ctx.arc(0,-1,pr-5,0,Math.PI*2);ctx.fill();
+  
+  // Eyes
   const fa=Math.atan2(player.facing.y,player.facing.x);
   const pex=Math.cos(fa)*4,pey=Math.sin(fa)*4;
   ctx.fillStyle='#fff';
@@ -984,11 +1321,42 @@ function draw(){
   ctx.fillStyle='#1e293b';
   ctx.beginPath();ctx.arc(-4+pex*1.3,-2+pey*1.3,1.5,0,Math.PI*2);ctx.fill();
   ctx.beginPath();ctx.arc(4+pex*1.3,-2+pey*1.3,1.5,0,Math.PI*2);ctx.fill();
+  
+  // Attack animation (scales with level)
   if(player.attackAnim>0){
-    ctx.strokeStyle='rgba(251,191,36,0.6)';ctx.lineWidth=3;
-    ctx.beginPath();ctx.arc(player.facing.x*20,player.facing.y*20,22,fa-1,fa+1);ctx.stroke();
+    const atkRange=getAttackRange();
+    const slashR=22+playerLevel*1.5;
+    ctx.strokeStyle='rgba(251,191,36,0.6)';ctx.lineWidth=3+playerLevel*0.2;
+    ctx.beginPath();ctx.arc(player.facing.x*(atkRange*0.4),player.facing.y*(atkRange*0.4),slashR,fa-1,fa+1);ctx.stroke();
   }
+  
   ctx.restore();
+  
+  // Equipped weapon icons floating near player
+  const gearIcons=[];
+  if(equipped.weapon) gearIcons.push(equipped.weapon.icon);
+  if(equipped.armor) gearIcons.push(equipped.armor.icon);
+  if(equipped.accessory) gearIcons.push(equipped.accessory.icon);
+  if(gearIcons.length>0){
+    const now=Date.now()*0.002;
+    gearIcons.forEach((icon,i)=>{
+      const angle=now+i*(Math.PI*2/gearIcons.length);
+      const gx=player.x+Math.cos(angle)*(pr+14);
+      const gy=player.y+Math.sin(angle)*(pr+14);
+      ctx.font='10px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.globalAlpha=0.7;
+      ctx.fillText(icon,gx,gy);
+      ctx.globalAlpha=1;
+    });
+  }
+  
+  // Full gear sparkle particles
+  sparkleParticles.forEach(s=>{
+    ctx.globalAlpha=(s.life/s.maxLife)*0.8;
+    ctx.fillStyle='#fbbf24';
+    ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.fill();
+  });
+  ctx.globalAlpha=1;
 
   // particles
   particles.forEach(p=>{
