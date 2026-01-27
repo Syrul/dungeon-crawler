@@ -1,0 +1,14 @@
+/Users/wehneh/Repos/dungeon-crawler/server/target/wasm32-unknown-unknown/release/deps/serde-9db92bbab7c6a20d.d: /Users/wehneh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/wehneh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/wehneh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/wehneh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/wehneh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/wehneh/Repos/dungeon-crawler/server/target/wasm32-unknown-unknown/release/build/serde-c2e078aee13b9e85/out/private.rs
+
+/Users/wehneh/Repos/dungeon-crawler/server/target/wasm32-unknown-unknown/release/deps/libserde-9db92bbab7c6a20d.rlib: /Users/wehneh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/wehneh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/wehneh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/wehneh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/wehneh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/wehneh/Repos/dungeon-crawler/server/target/wasm32-unknown-unknown/release/build/serde-c2e078aee13b9e85/out/private.rs
+
+/Users/wehneh/Repos/dungeon-crawler/server/target/wasm32-unknown-unknown/release/deps/libserde-9db92bbab7c6a20d.rmeta: /Users/wehneh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/wehneh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/wehneh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/wehneh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/wehneh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/wehneh/Repos/dungeon-crawler/server/target/wasm32-unknown-unknown/release/build/serde-c2e078aee13b9e85/out/private.rs
+
+/Users/wehneh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs:
+/Users/wehneh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs:
+/Users/wehneh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs:
+/Users/wehneh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs:
+/Users/wehneh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs:
+/Users/wehneh/Repos/dungeon-crawler/server/target/wasm32-unknown-unknown/release/build/serde-c2e078aee13b9e85/out/private.rs:
+
+# env-dep:OUT_DIR=/Users/wehneh/Repos/dungeon-crawler/server/target/wasm32-unknown-unknown/release/build/serde-c2e078aee13b9e85/out
