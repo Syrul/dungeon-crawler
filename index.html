@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Dungeon Crawler</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#1a1a2e;touch-action:none;user-select:none;-webkit-user-select:none;font-family:'Segoe UI',system-ui,sans-serif}
+canvas{display:block;width:100%;height:100%}
+#ui-overlay{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
+#health-bar-container{position:absolute;top:env(safe-area-inset-top,12px);left:50%;transform:translateX(-50%);width:60%;max-width:280px;pointer-events:none}
+#health-bar-bg{width:100%;height:22px;background:rgba(0,0,0,0.6);border-radius:11px;border:2px solid rgba(255,255,255,0.3);overflow:hidden;position:relative}
+#health-bar-fill{height:100%;background:linear-gradient(180deg,#4ade80,#22c55e);border-radius:9px;transition:width 0.3s;width:100%}
+#health-text{position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.8)}
+#minimap{position:absolute;top:env(safe-area-inset-top,12px);right:12px;pointer-events:none;width:80px;height:80px}
+#room-label{position:absolute;top:calc(env(safe-area-inset-top,12px) + 30px);left:50%;transform:translateX(-50%);color:#fff;font-size:13px;font-weight:600;text-shadow:0 1px 4px rgba(0,0,0,0.8);pointer-events:none;opacity:0;transition:opacity 0.5s}
+#joystick-zone{position:absolute;bottom:20px;left:20px;width:140px;height:140px;pointer-events:auto}
+#joystick-base{width:120px;height:120px;background:rgba(255,255,255,0.12);border:2px solid rgba(255,255,255,0.2);border-radius:50%;position:absolute;bottom:10px;left:10px}
+#joystick-thumb{width:50px;height:50px;background:rgba(255,255,255,0.35);border:2px solid rgba(255,255,255,0.5);border-radius:50%;position:absolute;bottom:45px;left:45px;transition:none}
+#ability-zone{position:absolute;bottom:30px;right:20px;display:flex;gap:14px;pointer-events:auto}
+.ability-btn{width:64px;height:64px;border-radius:50%;border:3px solid rgba(255,255,255,0.4);display:flex;align-items:center;justify-content:center;font-size:24px;color:#fff;font-weight:700;position:relative;overflow:hidden;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.ability-btn .cd-overlay{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);clip-path:polygon(50% 50%,50% 0%,50% 0%);pointer-events:none}
+.ability-btn .cd-text{position:absolute;font-size:16px;font-weight:800;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,0.8)}
+#btn-attack{background:radial-gradient(circle,#ef4444,#b91c1c)}
+#btn-dash{background:radial-gradient(circle,#3b82f6,#1d4ed8)}
+#screen-overlay{position:absolute;top:0;left:0;width:100%;height:100%;display:none;align-items:center;justify-content:center;flex-direction:column;background:rgba(0,0,0,0.85);z-index:100;pointer-events:auto}
+#screen-overlay h1{color:#fbbf24;font-size:32px;text-shadow:0 2px 8px rgba(251,191,36,0.5);margin-bottom:8px}
+#screen-overlay p{color:#e2e8f0;font-size:16px;margin-bottom:24px}
+#screen-overlay button{padding:14px 40px;font-size:18px;font-weight:700;border:none;border-radius:12px;background:linear-gradient(180deg,#fbbf24,#f59e0b);color:#1a1a2e;cursor:pointer;box-shadow:0 4px 12px rgba(251,191,36,0.4)}
+#start-screen{position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;flex-direction:column;background:linear-gradient(180deg,#1a1a2e,#16213e);z-index:200;pointer-events:auto}
+#start-screen h1{color:#fbbf24;font-size:36px;text-shadow:0 2px 12px rgba(251,191,36,0.5);margin-bottom:6px;letter-spacing:2px}
+#start-screen p{color:#94a3b8;font-size:14px;margin-bottom:30px}
+#start-screen button{padding:16px 48px;font-size:20px;font-weight:800;border:none;border-radius:14px;background:linear-gradient(180deg,#fbbf24,#f59e0b);color:#1a1a2e;cursor:pointer;box-shadow:0 4px 16px rgba(251,191,36,0.4);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
+#death-screen{position:absolute;top:0;left:0;width:100%;height:100%;display:none;align-items:center;justify-content:center;flex-direction:column;background:rgba(127,29,29,0.85);z-index:100;pointer-events:auto}
+#death-screen h1{color:#fca5a5;font-size:32px;margin-bottom:8px}
+#death-screen p{color:#e2e8f0;font-size:16px;margin-bottom:24px}
+#death-screen button{padding:14px 40px;font-size:18px;font-weight:700;border:none;border-radius:12px;background:linear-gradient(180deg,#ef4444,#dc2626);color:#fff;cursor:pointer}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="ui-overlay">
+  <div id="health-bar-container"><div id="health-bar-bg"><div id="health-bar-fill"></div><div id="health-text">100 / 100</div></div></div>
+  <canvas id="minimap" width="80" height="80"></canvas>
+  <div id="room-label"></div>
+  <div id="joystick-zone"><div id="joystick-base"></div><div id="joystick-thumb"></div></div>
+  <div id="ability-zone">
+    <div class="ability-btn" id="btn-attack"><span>⚔</span><div class="cd-overlay"></div><span class="cd-text"></span></div>
+    <div class="ability-btn" id="btn-dash"><span>💨</span><div class="cd-overlay"></div><span class="cd-text"></span></div>
+  </div>
+</div>
+<div id="start-screen"><h1>⚔ DUNGEON CRAWLER</h1><p>Casual Dungeon Crawling</p><button id="btn-start">TAP TO PLAY</button></div>
+<div id="screen-overlay"><h1>🏆 DUNGEON COMPLETE!</h1><p>You conquered the dungeon!</p><button id="btn-restart">PLAY AGAIN</button></div>
+<div id="death-screen"><h1>💀 YOU DIED</h1><p>The dungeon claims another soul...</p><button id="btn-retry">TRY AGAIN</button></div>
+
+<script>
+// ─── CONFIG ───
+let TILE = 36;
+const PLAYER_R = 14;
+const CAM_SMOOTH = 0.08;
+
+// ─── HAPTICS ───
+function haptic(type){
+  try{
+    if(navigator.vibrate){
+      switch(type){
+        case'light':navigator.vibrate(10);break;
+        case'medium':navigator.vibrate(25);break;
+        case'heavy':navigator.vibrate(50);break;
+        case'kill':navigator.vibrate([20,30,40]);break;
+        case'die':navigator.vibrate([50,30,50,30,100]);break;
+        case'win':navigator.vibrate([30,50,30,50,30,50,100]);break;
+      }
+    }
+  }catch(e){}
+}
+
+// ─── SFX (Web Audio API) ───
+let audioCtx;
+function initAudio(){if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)();}
+function sfx(type){
+  initAudio();if(!audioCtx)return;
+  const o=audioCtx.createOscillator(),g=audioCtx.createGain();
+  o.connect(g);g.connect(audioCtx.destination);
+  const t=audioCtx.currentTime;
+  switch(type){
+    case'hit':
+      o.type='square';o.frequency.setValueAtTime(200,t);o.frequency.exponentialRampToValueAtTime(80,t+0.1);
+      g.gain.setValueAtTime(0.3,t);g.gain.exponentialRampToValueAtTime(0.01,t+0.1);
+      o.start(t);o.stop(t+0.1);break;
+    case'kill':
+      o.type='square';o.frequency.setValueAtTime(400,t);o.frequency.exponentialRampToValueAtTime(800,t+0.1);
+      g.gain.setValueAtTime(0.25,t);g.gain.exponentialRampToValueAtTime(0.01,t+0.15);
+      o.start(t);o.stop(t+0.15);break;
+    case'attack':
+      o.type='sawtooth';o.frequency.setValueAtTime(300,t);o.frequency.exponentialRampToValueAtTime(100,t+0.08);
+      g.gain.setValueAtTime(0.2,t);g.gain.exponentialRampToValueAtTime(0.01,t+0.08);
+      o.start(t);o.stop(t+0.08);break;
+    case'dash':
+      o.type='sine';o.frequency.setValueAtTime(150,t);o.frequency.exponentialRampToValueAtTime(600,t+0.15);
+      g.gain.setValueAtTime(0.2,t);g.gain.exponentialRampToValueAtTime(0.01,t+0.15);
+      o.start(t);o.stop(t+0.15);break;
+    case'hurt':
+      o.type='sawtooth';o.frequency.setValueAtTime(150,t);o.frequency.exponentialRampToValueAtTime(50,t+0.2);
+      g.gain.setValueAtTime(0.3,t);g.gain.exponentialRampToValueAtTime(0.01,t+0.2);
+      o.start(t);o.stop(t+0.2);break;
+    case'door':
+      o.type='sine';o.frequency.setValueAtTime(400,t);o.frequency.exponentialRampToValueAtTime(600,t+0.1);
+      g.gain.setValueAtTime(0.2,t);g.gain.exponentialRampToValueAtTime(0.01,t+0.3);
+      o.start(t);o.stop(t+0.3);
+      const o2=audioCtx.createOscillator(),g2=audioCtx.createGain();
+      o2.connect(g2);g2.connect(audioCtx.destination);
+      o2.type='sine';o2.frequency.setValueAtTime(600,t+0.1);o2.frequency.exponentialRampToValueAtTime(800,t+0.2);
+      g2.gain.setValueAtTime(0.2,t+0.1);g2.gain.exponentialRampToValueAtTime(0.01,t+0.3);
+      o2.start(t+0.1);o2.stop(t+0.3);break;
+    case'win':
+      [400,500,600,800].forEach((f,i)=>{
+        const ow=audioCtx.createOscillator(),gw=audioCtx.createGain();
+        ow.connect(gw);gw.connect(audioCtx.destination);
+        ow.type='sine';ow.frequency.setValueAtTime(f,t+i*0.15);
+        gw.gain.setValueAtTime(0.2,t+i*0.15);gw.gain.exponentialRampToValueAtTime(0.01,t+i*0.15+0.3);
+        ow.start(t+i*0.15);ow.stop(t+i*0.15+0.3);
+      });break;
+    case'die':
+      o.type='sawtooth';o.frequency.setValueAtTime(300,t);o.frequency.exponentialRampToValueAtTime(30,t+0.5);
+      g.gain.setValueAtTime(0.3,t);g.gain.exponentialRampToValueAtTime(0.01,t+0.5);
+      o.start(t);o.stop(t+0.5);break;
+  }
+}
+const ATTACK_RANGE = 50;
+const ATTACK_DMG = 25;
+const ATTACK_CD = 0.6;
+const DASH_DIST = 120;
+const DASH_CD = 3;
+const DASH_DUR = 0.15;
+
+// ─── ROOMS ───
+// 0=floor, 1=wall, 2=door
+const ROOM_W = 15, ROOM_H = 21;
+function makeRoom(){
+  const r=[];
+  for(let y=0;y<ROOM_H;y++){const row=[];for(let x=0;x<ROOM_W;x++){
+    if(y===0||y===ROOM_H-1||x===0||x===ROOM_W-1)row.push(1);else row.push(0);
+  }r.push(row)}return r;
+}
+function addDoor(r,side){
+  if(side==='top'){r[0][7]=2;}
+  if(side==='bottom'){r[ROOM_H-1][7]=2;}
+}
+
+const roomDefs=[
+  {name:'Entrance Hall',enemies:[{type:'slime',x:5,y:6},{type:'slime',x:10,y:12},{type:'slime',x:4,y:15}],doors:['bottom']},
+  {name:'Dark Corridor',enemies:[{type:'slime',x:4,y:5},{type:'skeleton',x:10,y:8},{type:'slime',x:7,y:14},{type:'skeleton',x:11,y:13}],doors:['top','bottom']},
+  {name:'Treasure Room',enemies:[{type:'skeleton',x:5,y:6},{type:'skeleton',x:10,y:6},{type:'archer',x:7,y:14},{type:'slime',x:3,y:11}],doors:['top','bottom']},
+  {name:'Ancient Chamber',enemies:[{type:'archer',x:4,y:5},{type:'skeleton',x:11,y:5},{type:'archer',x:4,y:15},{type:'skeleton',x:11,y:15},{type:'slime',x:7,y:10}],doors:['top','bottom']},
+  {name:'🔥 BOSS ARENA 🔥',enemies:[{type:'boss',x:7,y:8}],doors:['top'],isBoss:true},
+];
+
+// ─── STATE ───
+let canvas,ctx,W,H,minimapCtx;
+let gameStarted=false, gameOver=false, gameDead=false;
+let player,camera,rooms,currentRoom,particles,dmgNumbers,enemies;
+let joystickActive=false,joystickTouchId=null,joyVec={x:0,y:0};
+let abilities={attack:{cd:0,maxCd:ATTACK_CD},dash:{cd:0,maxCd:DASH_CD}};
+let shakeTimer=0,shakeIntensity=0;
+let roomTransition=0,roomTransAlpha=0;
+let lastTime=0;
+
+// ─── INIT ───
+function init(){
+  canvas=document.getElementById('game');
+  ctx=canvas.getContext('2d');
+  minimapCtx=document.getElementById('minimap').getContext('2d');
+  resize();
+  window.addEventListener('resize',resize);
+  setupTouch();
+  document.getElementById('btn-start').addEventListener('click',startGame);
+  document.getElementById('btn-restart').addEventListener('click',()=>{document.getElementById('screen-overlay').style.display='none';resetGame();});
+  document.getElementById('btn-retry').addEventListener('click',()=>{document.getElementById('death-screen').style.display='none';resetGame();});
+  document.getElementById('btn-attack').addEventListener('touchstart',e=>{e.preventDefault();doAttack();});
+  document.getElementById('btn-attack').addEventListener('click',doAttack);
+  document.getElementById('btn-dash').addEventListener('touchstart',e=>{e.preventDefault();doDash();});
+  document.getElementById('btn-dash').addEventListener('click',doDash);
+  requestAnimationFrame(loop);
+}
+
+let gameScale=1;
+function resize(){
+  const dpr=window.devicePixelRatio||1;
+  W=window.innerWidth;H=window.innerHeight;
+  TILE=Math.ceil(W/(ROOM_W*0.55));
+  canvas.width=W*dpr;canvas.height=H*dpr;
+  gameScale=1;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+
+function resetGame(){
+  player={x:7*TILE+TILE/2,y:17*TILE+TILE/2,hp:100,maxHp:100,r:PLAYER_R,vx:0,vy:0,speed:160,facing:{x:0,y:-1},dashing:false,dashTimer:0,dashDir:{x:0,y:0},invincible:0,attackAnim:0};
+  camera={x:0,y:0};
+  currentRoom=0;
+  particles=[];
+  dmgNumbers=[];
+  enemies=[];
+  abilities.attack.cd=0;abilities.dash.cd=0;
+  gameOver=false;gameDead=false;
+  rooms=roomDefs.map(d=>{const m=makeRoom();d.doors.forEach(s=>addDoor(m,s));return m;});
+  spawnEnemies();
+  showRoomLabel(roomDefs[0].name);
+  gameStarted=true;
+}
+
+function startGame(){
+  initAudio();
+  document.getElementById('start-screen').style.display='none';
+  resetGame();
+}
+
+// ─── ENEMIES ───
+const ENEMY_DEFS={
+  slime:{r:12,hp:40,maxHp:40,speed:40,dmg:8,color:'#22c55e',eyeColor:'#fff',atkRange:28,atkCd:1.5,xp:10},
+  skeleton:{r:13,hp:60,maxHp:60,speed:55,dmg:12,color:'#e2e8f0',eyeColor:'#1a1a2e',atkRange:32,atkCd:1.2,xp:15},
+  archer:{r:12,hp:35,maxHp:35,speed:30,dmg:10,color:'#a78bfa',eyeColor:'#fff',atkRange:180,atkCd:2.0,xp:20,ranged:true},
+  boss:{r:28,hp:300,maxHp:300,speed:45,dmg:18,color:'#ef4444',eyeColor:'#fbbf24',atkRange:40,atkCd:1.0,xp:100},
+};
+
+function spawnEnemies(){
+  enemies=[];
+  const def=roomDefs[currentRoom];
+  def.enemies.forEach(e=>{
+    const base=ENEMY_DEFS[e.type];
+    enemies.push({...base,type:e.type,x:e.x*TILE+TILE/2,y:e.y*TILE+TILE/2,atkTimer:Math.random()*base.atkCd,hit:0,knockX:0,knockY:0});
+  });
+}
+
+// ─── JOYSTICK ───
+function setupTouch(){
+  const zone=document.getElementById('joystick-zone');
+  zone.addEventListener('touchstart',e=>{e.preventDefault();if(joystickActive)return;const t=e.changedTouches[0];joystickTouchId=t.identifier;joystickActive=true;updateJoy(t);});
+  zone.addEventListener('touchmove',e=>{e.preventDefault();for(const t of e.changedTouches)if(t.identifier===joystickTouchId)updateJoy(t);});
+  const endJoy=e=>{for(const t of e.changedTouches)if(t.identifier===joystickTouchId){joystickActive=false;joystickTouchId=null;joyVec={x:0,y:0};resetThumb();}};
+  zone.addEventListener('touchend',endJoy);
+  zone.addEventListener('touchcancel',endJoy);
+}
+
+function updateJoy(t){
+  const base=document.getElementById('joystick-base');
+  const rect=base.getBoundingClientRect();
+  const cx=rect.left+rect.width/2,cy=rect.top+rect.height/2;
+  let dx=t.clientX-cx,dy=t.clientY-cy;
+  const dist=Math.sqrt(dx*dx+dy*dy);
+  const maxR=rect.width/2;
+  if(dist>maxR){dx=dx/dist*maxR;dy=dy/dist*maxR;}
+  joyVec={x:dx/maxR,y:dy/maxR};
+  const thumb=document.getElementById('joystick-thumb');
+  thumb.style.left=(rect.width/2-25+dx)+'px';
+  thumb.style.bottom=(rect.height/2-25-dy)+'px';
+}
+function resetThumb(){
+  const base=document.getElementById('joystick-base');
+  const thumb=document.getElementById('joystick-thumb');
+  thumb.style.left=(base.offsetWidth/2-25)+'px';
+  thumb.style.bottom=(base.offsetHeight/2-25)+'px';
+}
+
+// ─── ABILITIES ───
+function doAttack(){
+  if(abilities.attack.cd>0||gameOver||gameDead||!gameStarted)return;
+  abilities.attack.cd=ATTACK_CD;
+  player.attackAnim=0.25;
+  sfx('attack');haptic('light');
+  const fx=player.facing.x,fy=player.facing.y;
+  // hit enemies in front arc
+  enemies.forEach(e=>{
+    if(e.hp<=0)return;
+    const dx=e.x-player.x,dy=e.y-player.y;
+    const dist=Math.sqrt(dx*dx+dy*dy);
+    if(dist<ATTACK_RANGE+e.r){
+      hitEnemy(e,ATTACK_DMG,dx/dist,dy/dist);
+    }
+  });
+  // slash particles
+  for(let i=0;i<8;i++){
+    const a=Math.atan2(fy,fx)+((Math.random()-0.5)*1.2);
+    const sp=100+Math.random()*80;
+    particles.push({x:player.x+fx*20,y:player.y+fy*20,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:0.3,maxLife:0.3,r:3+Math.random()*2,color:'#fbbf24'});
+  }
+}
+
+function doDash(){
+  if(abilities.dash.cd>0||gameOver||gameDead||!gameStarted)return;
+  if(joyVec.x===0&&joyVec.y===0){player.dashDir={...player.facing};}
+  else{const m=Math.sqrt(joyVec.x*joyVec.x+joyVec.y*joyVec.y);player.dashDir={x:joyVec.x/m,y:joyVec.y/m};}
+  abilities.dash.cd=DASH_CD;
+  player.dashing=true;
+  sfx('dash');haptic('light');
+  player.dashTimer=DASH_DUR;
+  player.invincible=DASH_DUR+0.1;
+  for(let i=0;i<6;i++){particles.push({x:player.x,y:player.y,vx:(Math.random()-0.5)*60,vy:(Math.random()-0.5)*60,life:0.4,maxLife:0.4,r:4,color:'#60a5fa'});}
+}
+
+function hitEnemy(e,dmg,nx,ny){
+  e.hp-=dmg;
+  e.hit=0.15;
+  sfx('hit');haptic('medium');
+  e.knockX=nx*80;e.knockY=ny*80;
+  shakeTimer=0.1;shakeIntensity=3;
+  dmgNumbers.push({x:e.x,y:e.y-e.r,val:dmg,life:0.8,vy:-60,color:'#fbbf24'});
+  for(let i=0;i<5;i++){particles.push({x:e.x,y:e.y,vx:nx*60+(Math.random()-0.5)*80,vy:ny*60+(Math.random()-0.5)*80,life:0.35,maxLife:0.35,r:2+Math.random()*3,color:e.color});}
+  if(e.hp<=0){
+    sfx('kill');haptic('kill');
+    for(let i=0;i<12;i++){const a=Math.random()*Math.PI*2;const sp=40+Math.random()*80;particles.push({x:e.x,y:e.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:0.6,maxLife:0.6,r:3+Math.random()*4,color:e.color});}
+  }
+}
+
+function hitPlayer(dmg){
+  if(player.invincible>0)return;
+  player.hp-=dmg;
+  player.invincible=0.5;
+  sfx('hurt');haptic('heavy');
+  shakeTimer=0.15;shakeIntensity=5;
+  dmgNumbers.push({x:player.x,y:player.y-player.r,val:dmg,life:0.8,vy:-60,color:'#ef4444'});
+  for(let i=0;i<4;i++){particles.push({x:player.x,y:player.y,vx:(Math.random()-0.5)*100,vy:(Math.random()-0.5)*100,life:0.3,maxLife:0.3,r:3,color:'#ef4444'});}
+  if(player.hp<=0){player.hp=0;gameDead=true;sfx('die');haptic('die');setTimeout(()=>{document.getElementById('death-screen').style.display='flex';},500);}
+}
+
+// ─── COLLISION ───
+function tileAt(tx,ty){
+  const room=rooms[currentRoom];
+  if(tx<0||ty<0||tx>=ROOM_W||ty>=ROOM_H)return 1;
+  return room[ty][tx];
+}
+function canMove(x,y,r){
+  const margin=r;
+  const corners=[[x-margin,y-margin],[x+margin,y-margin],[x-margin,y+margin],[x+margin,y+margin]];
+  for(const[cx,cy]of corners){
+    const tx=Math.floor(cx/TILE),ty=Math.floor(cy/TILE);
+    if(tileAt(tx,ty)===1)return false;
+  }
+  return true;
+}
+
+// ─── ROOM TRANSITION ───
+function checkDoor(){
+  const def=roomDefs[currentRoom];
+  if(enemies.some(e=>e.hp>0))return; // must clear room
+  // bottom door → next room
+  if(def.doors.includes('bottom')&&player.y>=(ROOM_H-2.5)*TILE){
+    const doorX=7*TILE+TILE/2;
+    if(Math.abs(player.x-doorX)<TILE*2) goToRoom(currentRoom+1,'top');
+  }
+  // top door → prev room  
+  if(def.doors.includes('top')&&player.y<=TILE*2.5){
+    const doorX=7*TILE+TILE/2;
+    if(Math.abs(player.x-doorX)<TILE*2) goToRoom(currentRoom-1,'bottom');
+  }
+}
+
+function goToRoom(idx,enterFrom){
+  if(idx<0||idx>=roomDefs.length)return;
+  roomTransition=0.4;roomTransAlpha=0;
+  sfx('door');
+  setTimeout(()=>{
+    currentRoom=idx;
+    spawnEnemies();
+    if(enterFrom==='top')player.y=1.5*TILE;
+    else player.y=(ROOM_H-1.5)*TILE;
+    player.x=7*TILE+TILE/2;
+    showRoomLabel(roomDefs[idx].name);
+  },200);
+}
+
+function showRoomLabel(name){
+  const el=document.getElementById('room-label');
+  el.textContent=name;el.style.opacity='1';
+  setTimeout(()=>{el.style.opacity='0';},2000);
+}
+
+// ─── PROJECTILES ───
+let projectiles=[];
+
+// ─── UPDATE ───
+function update(dt){
+  if(!gameStarted||gameOver||gameDead)return;
+  // cooldowns
+  if(abilities.attack.cd>0)abilities.attack.cd=Math.max(0,abilities.attack.cd-dt);
+  if(abilities.dash.cd>0)abilities.dash.cd=Math.max(0,abilities.dash.cd-dt);
+  if(player.invincible>0)player.invincible-=dt;
+  if(player.attackAnim>0)player.attackAnim-=dt;
+  if(shakeTimer>0)shakeTimer-=dt;
+  if(roomTransition>0){roomTransition-=dt;roomTransAlpha=roomTransition>0.2?1:roomTransition/0.2;}
+
+  // player movement
+  if(player.dashing){
+    player.dashTimer-=dt;
+    const sp=DASH_DIST/DASH_DUR;
+    const nx=player.x+player.dashDir.x*sp*dt;
+    const ny=player.y+player.dashDir.y*sp*dt;
+    if(canMove(nx,ny,player.r)){player.x=nx;player.y=ny;}
+    if(player.dashTimer<=0)player.dashing=false;
+  }else{
+    const mag=Math.sqrt(joyVec.x*joyVec.x+joyVec.y*joyVec.y);
+    if(mag>0.1){
+      const nx=player.x+joyVec.x*player.speed*dt;
+      const ny=player.y+joyVec.y*player.speed*dt;
+      if(canMove(nx,player.y,player.r))player.x=nx;
+      if(canMove(player.x,ny,player.r))player.y=ny;
+      player.facing={x:joyVec.x/mag,y:joyVec.y/mag};
+    }
+  }
+
+  // enemies
+  enemies.forEach(e=>{
+    if(e.hp<=0)return;
+    if(e.hit>0){e.hit-=dt;e.x+=e.knockX*dt*4;e.y+=e.knockY*dt*4;e.knockX*=0.9;e.knockY*=0.9;if(!canMove(e.x,e.y,e.r)){e.x-=e.knockX*dt*4;e.y-=e.knockY*dt*4;}return;}
+    const dx=player.x-e.x,dy=player.y-e.y;
+    const dist=Math.sqrt(dx*dx+dy*dy);
+    
+    if(e.ranged){
+      // archer: keep distance, shoot
+      if(dist<120){const nx=e.x-dx/dist*e.speed*dt;const ny=e.y-dy/dist*e.speed*dt;if(canMove(nx,ny,e.r)){e.x=nx;e.y=ny;}}
+      e.atkTimer-=dt;
+      if(e.atkTimer<=0&&dist<e.atkRange){
+        e.atkTimer=e.atkCd;
+        projectiles.push({x:e.x,y:e.y,vx:dx/dist*200,vy:dy/dist*200,r:4,dmg:e.dmg,life:2,color:'#c084fc'});
+      }
+    }else{
+      // melee: move toward player
+      if(dist>e.atkRange){
+        const nx=e.x+dx/dist*e.speed*dt;
+        const ny=e.y+dy/dist*e.speed*dt;
+        if(canMove(nx,ny,e.r)){e.x=nx;e.y=ny;}
+      }
+      e.atkTimer-=dt;
+      if(e.atkTimer<=0&&dist<e.atkRange+player.r){
+        e.atkTimer=e.atkCd;
+        hitPlayer(e.dmg);
+      }
+    }
+
+    // boss special: spawn projectile ring
+    if(e.type==='boss'&&e.hp<e.maxHp*0.5&&Math.random()<0.01){
+      for(let i=0;i<8;i++){
+        const a=i*Math.PI/4;
+        projectiles.push({x:e.x,y:e.y,vx:Math.cos(a)*120,vy:Math.sin(a)*120,r:5,dmg:10,life:2.5,color:'#f97316'});
+      }
+    }
+  });
+
+  // projectiles
+  projectiles.forEach(p=>{
+    p.x+=p.vx*dt;p.y+=p.vy*dt;p.life-=dt;
+    const dx=p.x-player.x,dy=p.y-player.y;
+    if(Math.sqrt(dx*dx+dy*dy)<player.r+p.r){hitPlayer(p.dmg);p.life=0;}
+    const tx=Math.floor(p.x/TILE),ty=Math.floor(p.y/TILE);
+    if(tileAt(tx,ty)===1)p.life=0;
+  });
+  projectiles=projectiles.filter(p=>p.life>0);
+
+  // particles
+  particles.forEach(p=>{p.x+=p.vx*dt;p.y+=p.vy*dt;p.life-=dt;p.vx*=0.95;p.vy*=0.95;});
+  particles=particles.filter(p=>p.life>0);
+  dmgNumbers.forEach(d=>{d.y+=d.vy*dt;d.life-=dt;});
+  dmgNumbers=dmgNumbers.filter(d=>d.life>0);
+
+  // camera — smooth follow, clamped to room
+  const roomPxW=ROOM_W*TILE, roomPxH=ROOM_H*TILE;
+  let targetX=player.x-W/2;
+  let targetY=player.y-H/2;
+  if(roomPxW>W){targetX=Math.max(0,Math.min(targetX,roomPxW-W));}
+  else{targetX=(roomPxW-W)/2;}
+  if(roomPxH>H){targetY=Math.max(0,Math.min(targetY,roomPxH-H));}
+  else{targetY=(roomPxH-H)/2;}
+  camera.x+=(targetX-camera.x)*0.08;
+  camera.y+=(targetY-camera.y)*0.08;
+
+  // check doors
+  checkDoor();
+
+  // check boss dead → win
+  if(roomDefs[currentRoom].isBoss&&enemies.every(e=>e.hp<=0)){
+    gameOver=true;sfx('win');haptic('win');
+    setTimeout(()=>{document.getElementById('screen-overlay').style.display='flex';},1000);
+  }
+
+  // UI
+  const fill=document.getElementById('health-bar-fill');
+  fill.style.width=(player.hp/player.maxHp*100)+'%';
+  fill.style.background=player.hp>50?'linear-gradient(180deg,#4ade80,#22c55e)':player.hp>25?'linear-gradient(180deg,#fbbf24,#f59e0b)':'linear-gradient(180deg,#ef4444,#dc2626)';
+  document.getElementById('health-text').textContent=Math.ceil(player.hp)+' / '+player.maxHp;
+
+  updateAbilityUI('btn-attack',abilities.attack);
+  updateAbilityUI('btn-dash',abilities.dash);
+}
+
+function updateAbilityUI(id,ab){
+  const btn=document.getElementById(id);
+  const overlay=btn.querySelector('.cd-overlay');
+  const text=btn.querySelector('.cd-text');
+  if(ab.cd>0){
+    const pct=ab.cd/ab.maxCd;
+    const deg=pct*360;
+    overlay.style.clipPath=`polygon(50% 50%, 50% 0%, ${deg>90?'100% 0%,':''}${deg>180?'100% 100%,':''}${deg>270?'0% 100%,':''}${cdEdge(deg)})`;
+    overlay.style.display='block';
+    text.textContent=ab.cd.toFixed(1);
+    btn.style.opacity='0.7';
+  }else{
+    overlay.style.display='none';
+    text.textContent='';
+    btn.style.opacity='1';
+  }
+}
+function cdEdge(deg){
+  if(deg<=90)return(50+50*Math.tan(deg*Math.PI/180))+'% 0%';
+  if(deg<=180)return'100% '+(50+50*Math.tan((deg-90)*Math.PI/180))+'%';
+  if(deg<=270)return(50-50*Math.tan((deg-180)*Math.PI/180))+'% 100%';
+  return'0% '+(50-50*Math.tan((deg-270)*Math.PI/180))+'%';
+}
+
+// ─── DRAW ───
+function draw(){
+  ctx.fillStyle='#1a1a2e';
+  ctx.fillRect(0,0,W+10,H+10);
+  if(!gameStarted)return;
+
+  ctx.save();
+  let sx=0,sy=0;
+  if(shakeTimer>0){sx=(Math.random()-0.5)*shakeIntensity*2;sy=(Math.random()-0.5)*shakeIntensity*2;}
+  ctx.translate(-camera.x+sx,-camera.y+sy);
+
+  // tiles
+  const room=rooms[currentRoom];
+  for(let y=0;y<ROOM_H;y++)for(let x=0;x<ROOM_W;x++){
+    const t=room[y][x];
+    const px=x*TILE,py=y*TILE;
+    if(t===1){
+      ctx.fillStyle='#1a1a2e';ctx.fillRect(px,py,TILE,TILE);
+      ctx.fillStyle='#252540';ctx.fillRect(px+1,py+1,TILE-2,TILE-2);
+    }else if(t===2){
+      const cleared=enemies.every(e=>e.hp<=0);
+      ctx.fillStyle=cleared?'#065f46':'#7f1d1d';
+      ctx.fillRect(px,py,TILE,TILE);
+      if(cleared){ctx.fillStyle='#10b981';ctx.fillRect(px+8,py+2,TILE-16,TILE-4);}
+    }else{
+      ctx.fillStyle=(x+y)%2===0?'#2d3a4a':'#263242';
+      ctx.fillRect(px,py,TILE,TILE);
+      ctx.strokeStyle='rgba(255,255,255,0.04)';ctx.strokeRect(px,py,TILE,TILE);
+    }
+  }
+
+  // enemies
+  enemies.forEach(e=>{
+    if(e.hp<=0)return;
+    ctx.save();
+    ctx.translate(e.x,e.y);
+    if(e.hit>0)ctx.globalAlpha=0.5+Math.sin(e.hit*40)*0.5;
+    // body
+    if(e.type==='boss'){
+      ctx.fillStyle=e.color;
+      ctx.beginPath();ctx.arc(0,0,e.r,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#991b1b';ctx.beginPath();ctx.arc(0,0,e.r-4,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle=e.color;ctx.beginPath();ctx.arc(0,0,e.r-8,0,Math.PI*2);ctx.fill();
+      // crown
+      ctx.fillStyle='#fbbf24';
+      ctx.fillRect(-12,-e.r-8,24,8);
+      ctx.beginPath();ctx.moveTo(-12,-e.r-8);ctx.lineTo(-8,-e.r-16);ctx.lineTo(-4,-e.r-8);ctx.fill();
+      ctx.beginPath();ctx.moveTo(-4,-e.r-8);ctx.lineTo(0,-e.r-16);ctx.lineTo(4,-e.r-8);ctx.fill();
+      ctx.beginPath();ctx.moveTo(4,-e.r-8);ctx.lineTo(8,-e.r-16);ctx.lineTo(12,-e.r-8);ctx.fill();
+    }else if(e.type==='slime'){
+      ctx.fillStyle=e.color;
+      ctx.beginPath();ctx.ellipse(0,2,e.r,e.r*0.8,0,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#16a34a';
+      ctx.beginPath();ctx.ellipse(0,4,e.r*0.7,e.r*0.5,0,0,Math.PI*2);ctx.fill();
+    }else if(e.type==='skeleton'){
+      ctx.fillStyle=e.color;
+      ctx.fillRect(-e.r,-e.r,e.r*2,e.r*2);
+      ctx.fillStyle='#94a3b8';
+      ctx.fillRect(-e.r+2,-e.r+2,e.r*2-4,e.r*2-4);
+    }else if(e.type==='archer'){
+      ctx.fillStyle=e.color;
+      ctx.beginPath();ctx.moveTo(0,-e.r);ctx.lineTo(e.r,e.r);ctx.lineTo(-e.r,e.r);ctx.closePath();ctx.fill();
+    }
+    // eyes
+    const dx=player.x-e.x,dy=player.y-e.y,da=Math.atan2(dy,dx);
+    ctx.fillStyle=e.eyeColor;
+    const ex=Math.cos(da)*3,ey=Math.sin(da)*3;
+    ctx.beginPath();ctx.arc(-4+ex,-3+ey,2.5,0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.arc(4+ex,-3+ey,2.5,0,Math.PI*2);ctx.fill();
+    // hp bar
+    if(e.hp<e.maxHp){
+      ctx.fillStyle='rgba(0,0,0,0.5)';ctx.fillRect(-e.r,-e.r-8,e.r*2,5);
+      ctx.fillStyle='#ef4444';ctx.fillRect(-e.r,-e.r-8,e.r*2*(e.hp/e.maxHp),5);
+    }
+    ctx.restore();
+  });
+
+  // projectiles
+  projectiles.forEach(p=>{
+    ctx.fillStyle=p.color;ctx.globalAlpha=0.8;
+    ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fill();
+    ctx.globalAlpha=1;
+  });
+
+  // player
+  ctx.save();
+  ctx.translate(player.x,player.y);
+  if(player.invincible>0)ctx.globalAlpha=0.4+Math.sin(player.invincible*30)*0.3;
+  // shadow
+  ctx.fillStyle='rgba(0,0,0,0.3)';ctx.beginPath();ctx.ellipse(0,player.r-2,player.r,player.r*0.4,0,0,Math.PI*2);ctx.fill();
+  // body
+  ctx.fillStyle='#3b82f6';ctx.beginPath();ctx.arc(0,0,player.r,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#2563eb';ctx.beginPath();ctx.arc(0,2,player.r-3,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#3b82f6';ctx.beginPath();ctx.arc(0,-1,player.r-5,0,Math.PI*2);ctx.fill();
+  // eyes
+  const fa=Math.atan2(player.facing.y,player.facing.x);
+  const pex=Math.cos(fa)*4,pey=Math.sin(fa)*4;
+  ctx.fillStyle='#fff';
+  ctx.beginPath();ctx.arc(-4+pex,-2+pey,3.5,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.arc(4+pex,-2+pey,3.5,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#1e293b';
+  ctx.beginPath();ctx.arc(-4+pex*1.3,-2+pey*1.3,1.5,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.arc(4+pex*1.3,-2+pey*1.3,1.5,0,Math.PI*2);ctx.fill();
+  // attack slash
+  if(player.attackAnim>0){
+    ctx.strokeStyle='rgba(251,191,36,0.6)';ctx.lineWidth=3;
+    ctx.beginPath();ctx.arc(player.facing.x*20,player.facing.y*20,22,fa-1,fa+1);ctx.stroke();
+  }
+  ctx.restore();
+
+  // particles
+  particles.forEach(p=>{
+    ctx.globalAlpha=p.life/p.maxLife;ctx.fillStyle=p.color;
+    ctx.beginPath();ctx.arc(p.x,p.y,p.r*(p.life/p.maxLife),0,Math.PI*2);ctx.fill();
+  });
+  ctx.globalAlpha=1;
+
+  // dmg numbers
+  dmgNumbers.forEach(d=>{
+    ctx.globalAlpha=d.life/0.8;
+    ctx.fillStyle=d.color;ctx.font='bold 16px system-ui';ctx.textAlign='center';
+    ctx.fillText('-'+d.val,d.x,d.y);
+  });
+  ctx.globalAlpha=1;
+
+  ctx.restore();
+
+  // room transition overlay
+  if(roomTransition>0){
+    ctx.fillStyle=`rgba(0,0,0,${roomTransAlpha})`;
+    ctx.fillRect(0,0,W,H);
+  }
+
+  // minimap
+  drawMinimap();
+}
+
+function drawMinimap(){
+  const mc=minimapCtx;
+  mc.clearRect(0,0,80,80);
+  mc.fillStyle='rgba(0,0,0,0.5)';
+  mc.fillRect(0,0,80,80);
+  const totalRooms=roomDefs.length;
+  const roomH=12,roomW=16,gap=4;
+  const startY=(80-(totalRooms*(roomH+gap)-gap))/2;
+  for(let i=0;i<totalRooms;i++){
+    const rx=(80-roomW)/2,ry=startY+i*(roomH+gap);
+    mc.fillStyle=i===currentRoom?'#3b82f6':enemies.length===0||i!==currentRoom?'#475569':'#475569';
+    if(i<currentRoom)mc.fillStyle='#22c55e';
+    mc.fillRect(rx,ry,roomW,roomH);
+    if(i===currentRoom){mc.fillStyle='#fbbf24';mc.fillRect(rx+6,ry+3,4,6);}
+    if(roomDefs[i].isBoss){mc.fillStyle='#ef4444';mc.fillRect(rx+2,ry+2,3,3);}
+  }
+}
+
+// ─── LOOP ───
+function loop(t){
+  const dt=Math.min((t-lastTime)/1000,0.05);
+  lastTime=t;
+  update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+
+window.addEventListener('load',init);
+</script>
+</body>
+</html>
