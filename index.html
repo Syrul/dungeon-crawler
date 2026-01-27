@@ -11,12 +11,21 @@
 html,body{width:100%;height:100%;overflow:hidden;background:#1a1a2e;touch-action:none;user-select:none;-webkit-user-select:none;font-family:'Segoe UI',system-ui,sans-serif}
 canvas{display:block;width:100%;height:100%}
 #ui-overlay{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
-#health-bar-container{position:absolute;top:env(safe-area-inset-top,12px);left:50%;transform:translateX(-50%);width:60%;max-width:280px;pointer-events:none}
-#health-bar-bg{width:100%;height:22px;background:rgba(0,0,0,0.6);border-radius:11px;border:2px solid rgba(255,255,255,0.3);overflow:hidden;position:relative}
-#health-bar-fill{height:100%;background:linear-gradient(180deg,#4ade80,#22c55e);border-radius:9px;transition:width 0.3s;width:100%}
-#health-text{position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.8)}
+#health-bar-container{position:absolute;top:env(safe-area-inset-top,12px);left:50%;transform:translateX(-50%);width:55%;max-width:260px;pointer-events:none}
+#level-label{color:#fbbf24;font-size:12px;font-weight:800;text-shadow:0 1px 3px rgba(0,0,0,0.8);text-align:center;margin-bottom:2px}
+#health-bar-bg{width:100%;height:20px;background:rgba(0,0,0,0.6);border-radius:10px;border:2px solid rgba(255,255,255,0.3);overflow:hidden;position:relative}
+#health-bar-fill{height:100%;background:linear-gradient(180deg,#4ade80,#22c55e);border-radius:8px;transition:width 0.3s;width:100%}
+#health-text{position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.8)}
+#xp-bar-bg{width:100%;height:8px;background:rgba(0,0,0,0.5);border-radius:4px;overflow:hidden;margin-top:3px}
+#xp-bar-fill{height:100%;background:linear-gradient(180deg,#a78bfa,#7c3aed);border-radius:4px;transition:width 0.3s;width:0%}
+#gold-display{position:absolute;top:env(safe-area-inset-top,12px);left:12px;color:#fbbf24;font-size:14px;font-weight:700;text-shadow:0 1px 4px rgba(0,0,0,0.8);pointer-events:none;margin-top:32px}
+#bag-btn{position:absolute;top:env(safe-area-inset-top,12px);left:12px;width:40px;height:40px;background:rgba(0,0,0,0.5);border:2px solid rgba(255,255,255,0.3);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;pointer-events:auto;cursor:pointer;-webkit-tap-highlight-color:transparent}
+#depth-display{position:absolute;top:env(safe-area-inset-top,12px);right:100px;color:#94a3b8;font-size:11px;font-weight:600;text-shadow:0 1px 3px rgba(0,0,0,0.8);pointer-events:none}
 #minimap{position:absolute;top:env(safe-area-inset-top,12px);right:12px;pointer-events:none;width:80px;height:80px}
 #room-label{position:absolute;top:calc(env(safe-area-inset-top,12px) + 30px);left:50%;transform:translateX(-50%);color:#fff;font-size:13px;font-weight:600;text-shadow:0 1px 4px rgba(0,0,0,0.8);pointer-events:none;opacity:0;transition:opacity 0.5s}
+#pickup-notifications{position:absolute;top:calc(env(safe-area-inset-top,12px) + 70px);left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:4px;pointer-events:none}
+.pickup-note{color:#fff;font-size:13px;font-weight:700;text-shadow:0 1px 4px rgba(0,0,0,0.8);animation:pickupAnim 1.5s forwards;white-space:nowrap}
+@keyframes pickupAnim{0%{opacity:1;transform:translateY(0)}70%{opacity:1}100%{opacity:0;transform:translateY(-20px)}}
 #joystick-zone{position:absolute;bottom:20px;left:20px;width:140px;height:140px;pointer-events:auto}
 #joystick-base{width:120px;height:120px;background:rgba(255,255,255,0.12);border:2px solid rgba(255,255,255,0.2);border-radius:50%;position:absolute;bottom:10px;left:10px}
 #joystick-thumb{width:50px;height:50px;background:rgba(255,255,255,0.35);border:2px solid rgba(255,255,255,0.5);border-radius:50%;position:absolute;bottom:45px;left:45px;transition:none}
@@ -39,14 +48,46 @@ canvas{display:block;width:100%;height:100%}
 #death-screen h1{color:#fca5a5;font-size:32px;margin-bottom:8px}
 #death-screen p{color:#e2e8f0;font-size:16px;margin-bottom:24px}
 #death-screen button{padding:14px 40px;font-size:18px;font-weight:700;border:none;border-radius:12px;background:linear-gradient(180deg,#ef4444,#dc2626);color:#fff;cursor:pointer}
+
+/* Hub screen */
+#hub-screen{position:absolute;top:0;left:0;width:100%;height:100%;display:none;flex-direction:column;align-items:center;justify-content:flex-start;background:linear-gradient(180deg,#1a1a2e,#16213e);z-index:150;pointer-events:auto;overflow-y:auto;padding:60px 20px 40px}
+#hub-screen h1{color:#fbbf24;font-size:28px;text-shadow:0 2px 8px rgba(251,191,36,0.5);margin-bottom:16px}
+.hub-stats{color:#e2e8f0;font-size:14px;line-height:1.8;text-align:center;margin-bottom:20px}
+.hub-stats span{color:#fbbf24}
+#hub-screen button{padding:16px 48px;font-size:20px;font-weight:800;border:none;border-radius:14px;background:linear-gradient(180deg,#fbbf24,#f59e0b);color:#1a1a2e;cursor:pointer;box-shadow:0 4px 16px rgba(251,191,36,0.4);animation:pulse 2s infinite;margin-top:12px}
+
+/* Inventory panel */
+#inventory-panel{position:absolute;top:0;left:0;width:100%;height:100%;display:none;flex-direction:column;align-items:center;background:rgba(0,0,0,0.92);z-index:180;pointer-events:auto;overflow-y:auto;padding:50px 16px 30px}
+#inventory-panel h2{color:#fbbf24;font-size:22px;margin-bottom:12px}
+#inv-close{position:absolute;top:16px;right:16px;color:#fff;font-size:28px;cursor:pointer;width:40px;height:40px;display:flex;align-items:center;justify-content:center}
+.inv-section{width:100%;max-width:360px;margin-bottom:16px}
+.inv-section h3{color:#94a3b8;font-size:12px;text-transform:uppercase;margin-bottom:6px;letter-spacing:1px}
+.inv-slots{display:flex;flex-wrap:wrap;gap:8px}
+.inv-slot{width:72px;height:72px;background:rgba(255,255,255,0.08);border:2px solid rgba(255,255,255,0.15);border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px;color:#fff;cursor:pointer;position:relative;text-align:center;padding:2px}
+.inv-slot.empty{opacity:0.4}
+.inv-slot .item-icon{font-size:22px;margin-bottom:2px}
+.inv-slot .item-name{font-size:8px;line-height:1.1}
+.rarity-common{border-color:rgba(255,255,255,0.4)}
+.rarity-uncommon{border-color:#22c55e}
+.rarity-rare{border-color:#3b82f6}
+.rarity-epic{border-color:#a855f7}
+.rarity-legendary{border-color:#f97316}
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
 <div id="ui-overlay">
-  <div id="health-bar-container"><div id="health-bar-bg"><div id="health-bar-fill"></div><div id="health-text">100 / 100</div></div></div>
+  <div id="health-bar-container">
+    <div id="level-label">Lv 1</div>
+    <div id="health-bar-bg"><div id="health-bar-fill"></div><div id="health-text">100 / 100</div></div>
+    <div id="xp-bar-bg"><div id="xp-bar-fill"></div></div>
+  </div>
+  <div id="bag-btn">🎒</div>
+  <div id="gold-display">💰 0</div>
+  <div id="depth-display"></div>
   <canvas id="minimap" width="80" height="80"></canvas>
   <div id="room-label"></div>
+  <div id="pickup-notifications"></div>
   <div id="joystick-zone"><div id="joystick-base"></div><div id="joystick-thumb"></div></div>
   <div id="ability-zone">
     <div class="ability-btn" id="btn-attack"><span>⚔</span><div class="cd-overlay"></div><span class="cd-text"></span></div>
@@ -54,8 +95,19 @@ canvas{display:block;width:100%;height:100%}
   </div>
 </div>
 <div id="start-screen"><h1>⚔ DUNGEON CRAWLER</h1><p>Casual Dungeon Crawling</p><button id="btn-start">TAP TO PLAY</button></div>
-<div id="screen-overlay"><h1>🏆 DUNGEON COMPLETE!</h1><p>You conquered the dungeon!</p><button id="btn-restart">PLAY AGAIN</button></div>
-<div id="death-screen"><h1>💀 YOU DIED</h1><p>The dungeon claims another soul...</p><button id="btn-retry">TRY AGAIN</button></div>
+<div id="screen-overlay"><h1>🏆 DUNGEON COMPLETE!</h1><p id="complete-text">You conquered the dungeon!</p><button id="btn-restart">RETURN TO HUB</button></div>
+<div id="death-screen"><h1>💀 YOU DIED</h1><p>The dungeon claims another soul...</p><button id="btn-retry">RETURN TO HUB</button></div>
+<div id="hub-screen">
+  <h1>⚔ ADVENTURER'S HUB</h1>
+  <div class="hub-stats" id="hub-stats"></div>
+  <button id="btn-enter-dungeon">ENTER DUNGEON</button>
+</div>
+<div id="inventory-panel">
+  <div id="inv-close">✕</div>
+  <h2>🎒 Inventory</h2>
+  <div class="inv-section"><h3>Equipped</h3><div class="inv-slots" id="equipped-slots"></div></div>
+  <div class="inv-section"><h3>Backpack</h3><div class="inv-slots" id="backpack-slots"></div></div>
+</div>
 
 <script>
 // ─── CONFIG ───
@@ -129,17 +181,138 @@ function sfx(type){
       o.type='sawtooth';o.frequency.setValueAtTime(300,t);o.frequency.exponentialRampToValueAtTime(30,t+0.5);
       g.gain.setValueAtTime(0.3,t);g.gain.exponentialRampToValueAtTime(0.01,t+0.5);
       o.start(t);o.stop(t+0.5);break;
+    case'pickup':
+      o.type='sine';o.frequency.setValueAtTime(600,t);o.frequency.exponentialRampToValueAtTime(900,t+0.1);
+      g.gain.setValueAtTime(0.15,t);g.gain.exponentialRampToValueAtTime(0.01,t+0.15);
+      o.start(t);o.stop(t+0.15);break;
+    case'levelup':
+      [500,600,700,800,1000].forEach((f,i)=>{
+        const ol=audioCtx.createOscillator(),gl=audioCtx.createGain();
+        ol.connect(gl);gl.connect(audioCtx.destination);
+        ol.type='sine';ol.frequency.setValueAtTime(f,t+i*0.1);
+        gl.gain.setValueAtTime(0.2,t+i*0.1);gl.gain.exponentialRampToValueAtTime(0.01,t+i*0.1+0.2);
+        ol.start(t+i*0.1);ol.stop(t+i*0.1+0.2);
+      });break;
   }
 }
 const ATTACK_RANGE = 50;
-const ATTACK_DMG = 25;
+const BASE_ATTACK_DMG = 25;
 const ATTACK_CD = 0.6;
 const DASH_DIST = 120;
 const DASH_CD = 3;
 const DASH_DUR = 0.15;
 
+// ─── GEAR SYSTEM ───
+const RARITIES = [
+  {name:'common',color:'#ffffff',weight:50,statBonus:1},
+  {name:'uncommon',color:'#22c55e',weight:30,statBonus:1.5},
+  {name:'rare',color:'#3b82f6',weight:13,statBonus:2.5},
+  {name:'epic',color:'#a855f7',weight:5,statBonus:4},
+  {name:'legendary',color:'#f97316',weight:2,statBonus:6}
+];
+const GEAR_MATERIALS=['Rusty','Iron','Steel','Silver','Crystal','Shadow','Golden','Ancient','Dragon','Void'];
+const GEAR_TYPES={
+  weapon:[{name:'Sword',icon:'⚔️'},{name:'Axe',icon:'🪓'},{name:'Dagger',icon:'🗡️'},{name:'Staff',icon:'🪄'},{name:'Hammer',icon:'🔨'}],
+  armor:[{name:'Shield',icon:'🛡️'},{name:'Chestplate',icon:'🦺'},{name:'Helm',icon:'⛑️'},{name:'Robe',icon:'👘'}],
+  accessory:[{name:'Ring',icon:'💍'},{name:'Amulet',icon:'📿'},{name:'Charm',icon:'🔮'},{name:'Cape',icon:'🧣'}]
+};
+const STAT_TYPES=['ATK','DEF','HP','Speed'];
+
+function pickRarity(depth){
+  // higher depth = slightly better loot
+  let weights=RARITIES.map((r,i)=>r.weight*(i>=2?1+depth*0.1:1));
+  let total=weights.reduce((a,b)=>a+b,0);
+  let roll=Math.random()*total;
+  for(let i=0;i<RARITIES.length;i++){roll-=weights[i];if(roll<=0)return RARITIES[i];}
+  return RARITIES[0];
+}
+
+function generateGear(slot,depth){
+  const rarity=pickRarity(depth||1);
+  const types=GEAR_TYPES[slot];
+  const type=types[Math.floor(Math.random()*types.length)];
+  const mat=GEAR_MATERIALS[Math.min(Math.floor(Math.random()*(3+depth)),GEAR_MATERIALS.length-1)];
+  const numStats=Math.random()<0.5?1:2;
+  const stats={};
+  const usedStats=[];
+  for(let i=0;i<numStats;i++){
+    let st;
+    do{st=STAT_TYPES[Math.floor(Math.random()*STAT_TYPES.length)];}while(usedStats.includes(st));
+    usedStats.push(st);
+    const base=st==='HP'?Math.floor(5+Math.random()*10):Math.floor(1+Math.random()*4);
+    stats[st]=Math.ceil(base*rarity.statBonus);
+  }
+  return{slot,name:mat+' '+type.name,icon:type.icon,rarity:rarity.name,rarityColor:rarity.color,stats,id:Math.random().toString(36).substr(2,9)};
+}
+
+// ─── PERSISTENT STATE ───
+let gold=0,dungeonDepth=1;
+let playerLevel=1,playerXP=0;
+let baseMaxHp=100,baseAtk=0,baseDef=0,baseSpeed=0;
+let equipped={weapon:null,armor:null,accessory:null};
+let backpack=[]; // max 12
+
+function xpToLevel(lv){return lv*50;}
+
+function getGearStats(){
+  let s={ATK:0,DEF:0,HP:0,Speed:0};
+  for(let sl in equipped){if(equipped[sl]){for(let st in equipped[sl].stats)s[st]+=equipped[sl].stats[st];}}
+  return s;
+}
+
+function totalAtk(){return BASE_ATTACK_DMG+baseAtk+getGearStats().ATK;}
+function totalDef(){return baseDef+getGearStats().DEF;}
+function totalMaxHp(){return baseMaxHp+getGearStats().HP;}
+function totalSpeed(){return 160+baseSpeed+getGearStats().Speed*10;}
+
+function gainXP(amount){
+  playerXP+=amount;
+  let needed=xpToLevel(playerLevel);
+  while(playerXP>=needed){
+    playerXP-=needed;
+    playerLevel++;
+    baseMaxHp+=10;baseAtk+=2;baseDef+=1;
+    player.maxHp=totalMaxHp();
+    player.hp=player.maxHp;
+    sfx('levelup');haptic('win');
+    showPickup('LEVEL UP! Lv '+playerLevel,'#fbbf24');
+    // golden particles
+    for(let i=0;i<20;i++){
+      const a=Math.random()*Math.PI*2,sp=60+Math.random()*120;
+      particles.push({x:player.x,y:player.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:1,maxLife:1,r:3+Math.random()*4,color:'#fbbf24'});
+    }
+    needed=xpToLevel(playerLevel);
+  }
+}
+
+// ─── LOOT DROPS ───
+let lootDrops=[]; // {x,y,type:'gold'|'gear',amount,gear,glow}
+
+function spawnLoot(x,y,enemyType){
+  const isBoss=enemyType==='boss';
+  // gold always
+  const goldAmt=isBoss?50+Math.floor(Math.random()*50):5+Math.floor(Math.random()*15);
+  lootDrops.push({x:x+(Math.random()-0.5)*20,y:y+(Math.random()-0.5)*20,type:'gold',amount:goldAmt,glow:0,icon:'💰'});
+  // gear chance
+  const gearChance=isBoss?1:0.3;
+  if(Math.random()<gearChance){
+    const slots=['weapon','armor','accessory'];
+    const slot=slots[Math.floor(Math.random()*slots.length)];
+    const gear=generateGear(slot,dungeonDepth);
+    lootDrops.push({x:x+(Math.random()-0.5)*30,y:y+(Math.random()-0.5)*30,type:'gear',gear,glow:0,icon:gear.icon});
+  }
+}
+
+function showPickup(text,color){
+  const el=document.createElement('div');
+  el.className='pickup-note';
+  el.textContent=text;
+  el.style.color=color||'#fff';
+  document.getElementById('pickup-notifications').appendChild(el);
+  setTimeout(()=>el.remove(),1500);
+}
+
 // ─── ROOMS ───
-// 0=floor, 1=wall, 2=door
 const ROOM_W = 15, ROOM_H = 21;
 function makeRoom(){
   const r=[];
@@ -152,17 +325,47 @@ function addDoor(r,side){
   if(side==='bottom'){r[ROOM_H-1][7]=2;}
 }
 
-const roomDefs=[
-  {name:'Entrance Hall',enemies:[{type:'slime',x:5,y:6},{type:'slime',x:10,y:12},{type:'slime',x:4,y:15}],doors:['bottom']},
-  {name:'Dark Corridor',enemies:[{type:'slime',x:4,y:5},{type:'skeleton',x:10,y:8},{type:'slime',x:7,y:14},{type:'skeleton',x:11,y:13}],doors:['top','bottom']},
-  {name:'Treasure Room',enemies:[{type:'skeleton',x:5,y:6},{type:'skeleton',x:10,y:6},{type:'archer',x:7,y:14},{type:'slime',x:3,y:11}],doors:['top','bottom']},
-  {name:'Ancient Chamber',enemies:[{type:'archer',x:4,y:5},{type:'skeleton',x:11,y:5},{type:'archer',x:4,y:15},{type:'skeleton',x:11,y:15},{type:'slime',x:7,y:10}],doors:['top','bottom']},
-  {name:'🔥 BOSS ARENA 🔥',enemies:[{type:'boss',x:7,y:8}],doors:['top'],isBoss:true},
-];
+// ─── RANDOM DUNGEON GENERATION ───
+let dungeonRooms=[]; // generated room definitions
+
+function generateDungeon(depth){
+  const numRooms=5+Math.floor(Math.random()*4); // 5-8
+  const enemyTypes=['slime','skeleton','archer'];
+  const defs=[];
+  for(let i=0;i<numRooms;i++){
+    const isBoss=i===numRooms-1;
+    const isFirst=i===0;
+    const doors=[];
+    if(!isFirst)doors.push('top');
+    if(!isBoss)doors.push('bottom');
+
+    let enList=[];
+    if(isBoss){
+      enList.push({type:'boss',x:7,y:8});
+      // add some minions at higher depths
+      if(depth>=3){enList.push({type:'slime',x:4,y:12});enList.push({type:'slime',x:10,y:12});}
+    }else{
+      const numEnemies=2+Math.floor(Math.random()*3)+Math.floor(depth*0.5);
+      for(let j=0;j<numEnemies;j++){
+        const avail=depth>=3?enemyTypes:depth>=2?['slime','skeleton']:['slime'];
+        // later rooms in dungeon can have harder enemies
+        const pool=i>=numRooms/2?enemyTypes:avail;
+        const type=pool[Math.floor(Math.random()*pool.length)];
+        const ex=2+Math.floor(Math.random()*11);
+        const ey=3+Math.floor(Math.random()*14);
+        enList.push({type,x:ex,y:ey});
+      }
+    }
+
+    const roomNames=isBoss?'🔥 BOSS ARENA 🔥':['Dark Hall','Ancient Chamber','Dusty Corridor','Treasure Room','Cursed Vault','Forgotten Crypt','Spider Den','Mossy Cave'][i%8];
+    defs.push({name:roomNames,enemies:enList,doors,isBoss});
+  }
+  return defs;
+}
 
 // ─── STATE ───
 let canvas,ctx,W,H,minimapCtx;
-let gameStarted=false, gameOver=false, gameDead=false;
+let gameStarted=false, gameOver=false, gameDead=false, inHub=false;
 let player,camera,rooms,currentRoom,particles,dmgNumbers,enemies;
 let joystickActive=false,joystickTouchId=null,joyVec={x:0,y:0};
 let abilities={attack:{cd:0,maxCd:ATTACK_CD},dash:{cd:0,maxCd:DASH_CD}};
@@ -179,12 +382,15 @@ function init(){
   window.addEventListener('resize',resize);
   setupTouch();
   document.getElementById('btn-start').addEventListener('click',startGame);
-  document.getElementById('btn-restart').addEventListener('click',()=>{document.getElementById('screen-overlay').style.display='none';resetGame();});
-  document.getElementById('btn-retry').addEventListener('click',()=>{document.getElementById('death-screen').style.display='none';resetGame();});
+  document.getElementById('btn-restart').addEventListener('click',()=>{document.getElementById('screen-overlay').style.display='none';showHub();});
+  document.getElementById('btn-retry').addEventListener('click',()=>{document.getElementById('death-screen').style.display='none';showHub();});
   document.getElementById('btn-attack').addEventListener('touchstart',e=>{e.preventDefault();doAttack();});
   document.getElementById('btn-attack').addEventListener('click',doAttack);
   document.getElementById('btn-dash').addEventListener('touchstart',e=>{e.preventDefault();doDash();});
   document.getElementById('btn-dash').addEventListener('click',doDash);
+  document.getElementById('btn-enter-dungeon').addEventListener('click',enterDungeon);
+  document.getElementById('bag-btn').addEventListener('click',openInventory);
+  document.getElementById('inv-close').addEventListener('click',closeInventory);
   requestAnimationFrame(loop);
 }
 
@@ -198,41 +404,165 @@ function resize(){
   ctx.setTransform(dpr,0,0,dpr,0,0);
 }
 
+function showHub(){
+  inHub=true;gameStarted=false;gameOver=false;gameDead=false;
+  const gs=getGearStats();
+  let statsHtml=`<span>Lv ${playerLevel}</span> — XP: ${playerXP}/${xpToLevel(playerLevel)}<br>`;
+  statsHtml+=`HP: <span>${totalMaxHp()}</span> | ATK: <span>${totalAtk()}</span> | DEF: <span>${totalDef()}</span><br>`;
+  statsHtml+=`💰 <span>${gold}</span> Gold<br>`;
+  statsHtml+=`Dungeon Depth: <span>Run ${dungeonDepth}</span>`;
+  document.getElementById('hub-stats').innerHTML=statsHtml;
+  document.getElementById('hub-screen').style.display='flex';
+}
+
+function enterDungeon(){
+  document.getElementById('hub-screen').style.display='none';
+  inHub=false;
+  resetGame();
+}
+
 function resetGame(){
-  player={x:7*TILE+TILE/2,y:17*TILE+TILE/2,hp:100,maxHp:100,r:PLAYER_R,vx:0,vy:0,speed:160,facing:{x:0,y:-1},dashing:false,dashTimer:0,dashDir:{x:0,y:0},invincible:0,attackAnim:0};
+  player={x:7*TILE+TILE/2,y:17*TILE+TILE/2,hp:totalMaxHp(),maxHp:totalMaxHp(),r:PLAYER_R,vx:0,vy:0,speed:totalSpeed(),facing:{x:0,y:-1},dashing:false,dashTimer:0,dashDir:{x:0,y:0},invincible:0,attackAnim:0};
   camera={x:0,y:0};
   currentRoom=0;
   particles=[];
   dmgNumbers=[];
   enemies=[];
+  lootDrops=[];
+  projectiles=[];
   abilities.attack.cd=0;abilities.dash.cd=0;
   gameOver=false;gameDead=false;
-  rooms=roomDefs.map(d=>{const m=makeRoom();d.doors.forEach(s=>addDoor(m,s));return m;});
+  dungeonRooms=generateDungeon(dungeonDepth);
+  rooms=dungeonRooms.map(d=>{const m=makeRoom();d.doors.forEach(s=>addDoor(m,s));return m;});
   spawnEnemies();
-  showRoomLabel(roomDefs[0].name);
+  showRoomLabel(dungeonRooms[0].name);
+  document.getElementById('depth-display').textContent='Run '+dungeonDepth;
   gameStarted=true;
 }
 
 function startGame(){
   initAudio();
   document.getElementById('start-screen').style.display='none';
-  resetGame();
+  showHub();
+}
+
+// ─── INVENTORY UI ───
+function openInventory(){
+  renderInventory();
+  document.getElementById('inventory-panel').style.display='flex';
+}
+function closeInventory(){
+  document.getElementById('inventory-panel').style.display='none';
+}
+
+let longPressTimer=null;
+function renderInventory(){
+  // Equipped
+  const eqDiv=document.getElementById('equipped-slots');
+  eqDiv.innerHTML='';
+  ['weapon','armor','accessory'].forEach(slot=>{
+    const item=equipped[slot];
+    const el=document.createElement('div');
+    el.className='inv-slot'+(item?' rarity-'+item.rarity:' empty');
+    if(item){
+      el.innerHTML=`<div class="item-icon">${item.icon}</div><div class="item-name" style="color:${item.rarityColor}">${item.name}</div>`;
+      el.title=Object.entries(item.stats).map(([k,v])=>'+'+v+' '+k).join(', ');
+      el.addEventListener('click',()=>{unequipItem(slot);renderInventory();});
+      addLongPress(el,()=>{equipped[slot]=null;renderInventory();});
+    }else{
+      el.innerHTML=`<div class="item-icon">—</div><div class="item-name">${slot}</div>`;
+    }
+    eqDiv.appendChild(el);
+  });
+  // Backpack
+  const bpDiv=document.getElementById('backpack-slots');
+  bpDiv.innerHTML='';
+  for(let i=0;i<12;i++){
+    const item=backpack[i];
+    const el=document.createElement('div');
+    el.className='inv-slot'+(item?' rarity-'+item.rarity:' empty');
+    if(item){
+      el.innerHTML=`<div class="item-icon">${item.icon}</div><div class="item-name" style="color:${item.rarityColor}">${item.name}</div>`;
+      el.title=Object.entries(item.stats).map(([k,v])=>'+'+v+' '+k).join(', ');
+      const idx=i;
+      el.addEventListener('click',()=>{equipFromBackpack(idx);renderInventory();});
+      addLongPress(el,()=>{backpack.splice(idx,1);renderInventory();});
+    }else{
+      el.innerHTML=`<div class="item-icon">·</div>`;
+    }
+    bpDiv.appendChild(el);
+  }
+}
+
+function addLongPress(el,cb){
+  let timer;
+  const start=()=>{timer=setTimeout(()=>{haptic('medium');cb();},600);};
+  const cancel=()=>clearTimeout(timer);
+  el.addEventListener('touchstart',start);
+  el.addEventListener('touchend',cancel);
+  el.addEventListener('touchcancel',cancel);
+  el.addEventListener('mousedown',start);
+  el.addEventListener('mouseup',cancel);
+  el.addEventListener('mouseleave',cancel);
+}
+
+function equipFromBackpack(idx){
+  const item=backpack[idx];
+  if(!item)return;
+  const slot=item.slot;
+  const old=equipped[slot];
+  equipped[slot]=item;
+  backpack.splice(idx,1);
+  if(old)backpack.push(old);
+  updatePlayerFromGear();
+}
+
+function unequipItem(slot){
+  const item=equipped[slot];
+  if(!item)return;
+  if(backpack.length>=12){showPickup('Backpack full!','#ef4444');return;}
+  backpack.push(item);
+  equipped[slot]=null;
+  updatePlayerFromGear();
+}
+
+function updatePlayerFromGear(){
+  if(player){
+    player.maxHp=totalMaxHp();
+    if(player.hp>player.maxHp)player.hp=player.maxHp;
+    player.speed=totalSpeed();
+  }
+}
+
+function addToInventory(gear){
+  if(backpack.length<12){
+    backpack.push(gear);
+    return true;
+  }
+  showPickup('Backpack full!','#ef4444');
+  return false;
 }
 
 // ─── ENEMIES ───
 const ENEMY_DEFS={
   slime:{r:12,hp:40,maxHp:40,speed:40,dmg:8,color:'#22c55e',eyeColor:'#fff',atkRange:28,atkCd:1.5,xp:10},
-  skeleton:{r:13,hp:60,maxHp:60,speed:55,dmg:12,color:'#e2e8f0',eyeColor:'#1a1a2e',atkRange:32,atkCd:1.2,xp:15},
-  archer:{r:12,hp:35,maxHp:35,speed:30,dmg:10,color:'#a78bfa',eyeColor:'#fff',atkRange:180,atkCd:2.0,xp:20,ranged:true},
+  skeleton:{r:13,hp:60,maxHp:60,speed:55,dmg:12,color:'#e2e8f0',eyeColor:'#1a1a2e',atkRange:32,atkCd:1.2,xp:20},
+  archer:{r:12,hp:35,maxHp:35,speed:30,dmg:10,color:'#a78bfa',eyeColor:'#fff',atkRange:180,atkCd:2.0,xp:25,ranged:true},
   boss:{r:28,hp:300,maxHp:300,speed:45,dmg:18,color:'#ef4444',eyeColor:'#fbbf24',atkRange:40,atkCd:1.0,xp:100},
 };
 
 function spawnEnemies(){
   enemies=[];
-  const def=roomDefs[currentRoom];
+  const def=dungeonRooms[currentRoom];
+  const hpMult=1+(dungeonDepth-1)*0.3;
+  const dmgMult=1+(dungeonDepth-1)*0.15;
   def.enemies.forEach(e=>{
     const base=ENEMY_DEFS[e.type];
-    enemies.push({...base,type:e.type,x:e.x*TILE+TILE/2,y:e.y*TILE+TILE/2,atkTimer:Math.random()*base.atkCd,hit:0,knockX:0,knockY:0});
+    enemies.push({...base,type:e.type,
+      x:e.x*TILE+TILE/2,y:e.y*TILE+TILE/2,
+      hp:Math.ceil(base.hp*hpMult),maxHp:Math.ceil(base.maxHp*hpMult),
+      dmg:Math.ceil(base.dmg*dmgMult),
+      atkTimer:Math.random()*base.atkCd,hit:0,knockX:0,knockY:0});
   });
 }
 
@@ -273,16 +603,15 @@ function doAttack(){
   player.attackAnim=0.25;
   sfx('attack');haptic('light');
   const fx=player.facing.x,fy=player.facing.y;
-  // hit enemies in front arc
+  const dmg=totalAtk();
   enemies.forEach(e=>{
     if(e.hp<=0)return;
     const dx=e.x-player.x,dy=e.y-player.y;
     const dist=Math.sqrt(dx*dx+dy*dy);
     if(dist<ATTACK_RANGE+e.r){
-      hitEnemy(e,ATTACK_DMG,dx/dist,dy/dist);
+      hitEnemy(e,dmg,dx/dist,dy/dist);
     }
   });
-  // slash particles
   for(let i=0;i<8;i++){
     const a=Math.atan2(fy,fx)+((Math.random()-0.5)*1.2);
     const sp=100+Math.random()*80;
@@ -313,16 +642,20 @@ function hitEnemy(e,dmg,nx,ny){
   if(e.hp<=0){
     sfx('kill');haptic('kill');
     for(let i=0;i<12;i++){const a=Math.random()*Math.PI*2;const sp=40+Math.random()*80;particles.push({x:e.x,y:e.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:0.6,maxLife:0.6,r:3+Math.random()*4,color:e.color});}
+    gainXP(e.xp);
+    spawnLoot(e.x,e.y,e.type);
   }
 }
 
 function hitPlayer(dmg){
   if(player.invincible>0)return;
-  player.hp-=dmg;
+  const def=totalDef();
+  const actualDmg=Math.max(1,dmg-def);
+  player.hp-=actualDmg;
   player.invincible=0.5;
   sfx('hurt');haptic('heavy');
   shakeTimer=0.15;shakeIntensity=5;
-  dmgNumbers.push({x:player.x,y:player.y-player.r,val:dmg,life:0.8,vy:-60,color:'#ef4444'});
+  dmgNumbers.push({x:player.x,y:player.y-player.r,val:actualDmg,life:0.8,vy:-60,color:'#ef4444'});
   for(let i=0;i<4;i++){particles.push({x:player.x,y:player.y,vx:(Math.random()-0.5)*100,vy:(Math.random()-0.5)*100,life:0.3,maxLife:0.3,r:3,color:'#ef4444'});}
   if(player.hp<=0){player.hp=0;gameDead=true;sfx('die');haptic('die');setTimeout(()=>{document.getElementById('death-screen').style.display='flex';},500);}
 }
@@ -345,14 +678,12 @@ function canMove(x,y,r){
 
 // ─── ROOM TRANSITION ───
 function checkDoor(){
-  const def=roomDefs[currentRoom];
-  if(enemies.some(e=>e.hp>0))return; // must clear room
-  // bottom door → next room
+  const def=dungeonRooms[currentRoom];
+  if(enemies.some(e=>e.hp>0))return;
   if(def.doors.includes('bottom')&&player.y>=(ROOM_H-2.5)*TILE){
     const doorX=7*TILE+TILE/2;
     if(Math.abs(player.x-doorX)<TILE*2) goToRoom(currentRoom+1,'top');
   }
-  // top door → prev room  
   if(def.doors.includes('top')&&player.y<=TILE*2.5){
     const doorX=7*TILE+TILE/2;
     if(Math.abs(player.x-doorX)<TILE*2) goToRoom(currentRoom-1,'bottom');
@@ -360,16 +691,17 @@ function checkDoor(){
 }
 
 function goToRoom(idx,enterFrom){
-  if(idx<0||idx>=roomDefs.length)return;
+  if(idx<0||idx>=dungeonRooms.length)return;
   roomTransition=0.4;roomTransAlpha=0;
   sfx('door');
   setTimeout(()=>{
     currentRoom=idx;
+    lootDrops=[];
     spawnEnemies();
     if(enterFrom==='top')player.y=1.5*TILE;
     else player.y=(ROOM_H-1.5)*TILE;
     player.x=7*TILE+TILE/2;
-    showRoomLabel(roomDefs[idx].name);
+    showRoomLabel(dungeonRooms[idx].name);
   },200);
 }
 
@@ -385,7 +717,6 @@ let projectiles=[];
 // ─── UPDATE ───
 function update(dt){
   if(!gameStarted||gameOver||gameDead)return;
-  // cooldowns
   if(abilities.attack.cd>0)abilities.attack.cd=Math.max(0,abilities.attack.cd-dt);
   if(abilities.dash.cd>0)abilities.dash.cd=Math.max(0,abilities.dash.cd-dt);
   if(player.invincible>0)player.invincible-=dt;
@@ -394,6 +725,7 @@ function update(dt){
   if(roomTransition>0){roomTransition-=dt;roomTransAlpha=roomTransition>0.2?1:roomTransition/0.2;}
 
   // player movement
+  player.speed=totalSpeed();
   if(player.dashing){
     player.dashTimer-=dt;
     const sp=DASH_DIST/DASH_DUR;
@@ -420,7 +752,6 @@ function update(dt){
     const dist=Math.sqrt(dx*dx+dy*dy);
     
     if(e.ranged){
-      // archer: keep distance, shoot
       if(dist<120){const nx=e.x-dx/dist*e.speed*dt;const ny=e.y-dy/dist*e.speed*dt;if(canMove(nx,ny,e.r)){e.x=nx;e.y=ny;}}
       e.atkTimer-=dt;
       if(e.atkTimer<=0&&dist<e.atkRange){
@@ -428,7 +759,6 @@ function update(dt){
         projectiles.push({x:e.x,y:e.y,vx:dx/dist*200,vy:dy/dist*200,r:4,dmg:e.dmg,life:2,color:'#c084fc'});
       }
     }else{
-      // melee: move toward player
       if(dist>e.atkRange){
         const nx=e.x+dx/dist*e.speed*dt;
         const ny=e.y+dy/dist*e.speed*dt;
@@ -441,7 +771,6 @@ function update(dt){
       }
     }
 
-    // boss special: spawn projectile ring
     if(e.type==='boss'&&e.hp<e.maxHp*0.5&&Math.random()<0.01){
       for(let i=0;i<8;i++){
         const a=i*Math.PI/4;
@@ -460,13 +789,33 @@ function update(dt){
   });
   projectiles=projectiles.filter(p=>p.life>0);
 
+  // loot pickup
+  lootDrops.forEach(l=>{
+    l.glow+=dt;
+    const dx=player.x-l.x,dy=player.y-l.y;
+    if(Math.sqrt(dx*dx+dy*dy)<player.r+14){
+      if(l.type==='gold'){
+        gold+=l.amount;
+        showPickup('+ '+l.amount+' Gold','#fbbf24');
+        sfx('pickup');
+      }else if(l.type==='gear'){
+        if(addToInventory(l.gear)){
+          showPickup('+1 '+l.gear.name,l.gear.rarityColor);
+          sfx('pickup');
+        }
+      }
+      l.picked=true;
+    }
+  });
+  lootDrops=lootDrops.filter(l=>!l.picked);
+
   // particles
   particles.forEach(p=>{p.x+=p.vx*dt;p.y+=p.vy*dt;p.life-=dt;p.vx*=0.95;p.vy*=0.95;});
   particles=particles.filter(p=>p.life>0);
   dmgNumbers.forEach(d=>{d.y+=d.vy*dt;d.life-=dt;});
   dmgNumbers=dmgNumbers.filter(d=>d.life>0);
 
-  // camera — smooth follow, clamped to room
+  // camera
   const roomPxW=ROOM_W*TILE, roomPxH=ROOM_H*TILE;
   let targetX=player.x-W/2;
   let targetY=player.y-H/2;
@@ -477,20 +826,25 @@ function update(dt){
   camera.x+=(targetX-camera.x)*0.08;
   camera.y+=(targetY-camera.y)*0.08;
 
-  // check doors
   checkDoor();
 
-  // check boss dead → win
-  if(roomDefs[currentRoom].isBoss&&enemies.every(e=>e.hp<=0)){
+  // boss dead → dungeon complete
+  if(dungeonRooms[currentRoom].isBoss&&enemies.every(e=>e.hp<=0)&&!gameOver){
     gameOver=true;sfx('win');haptic('win');
+    dungeonDepth++;
+    document.getElementById('complete-text').textContent='Run '+(dungeonDepth-1)+' cleared!';
     setTimeout(()=>{document.getElementById('screen-overlay').style.display='flex';},1000);
   }
 
-  // UI
+  // UI updates
+  player.maxHp=totalMaxHp();
   const fill=document.getElementById('health-bar-fill');
   fill.style.width=(player.hp/player.maxHp*100)+'%';
-  fill.style.background=player.hp>50?'linear-gradient(180deg,#4ade80,#22c55e)':player.hp>25?'linear-gradient(180deg,#fbbf24,#f59e0b)':'linear-gradient(180deg,#ef4444,#dc2626)';
+  fill.style.background=player.hp>player.maxHp*0.5?'linear-gradient(180deg,#4ade80,#22c55e)':player.hp>player.maxHp*0.25?'linear-gradient(180deg,#fbbf24,#f59e0b)':'linear-gradient(180deg,#ef4444,#dc2626)';
   document.getElementById('health-text').textContent=Math.ceil(player.hp)+' / '+player.maxHp;
+  document.getElementById('level-label').textContent='Lv '+playerLevel;
+  document.getElementById('xp-bar-fill').style.width=(playerXP/xpToLevel(playerLevel)*100)+'%';
+  document.getElementById('gold-display').textContent='💰 '+gold;
 
   updateAbilityUI('btn-attack',abilities.attack);
   updateAbilityUI('btn-dash',abilities.dash);
@@ -551,19 +905,31 @@ function draw(){
     }
   }
 
+  // loot drops
+  lootDrops.forEach(l=>{
+    ctx.save();
+    ctx.translate(l.x,l.y);
+    const pulse=0.8+Math.sin(l.glow*4)*0.2;
+    ctx.globalAlpha=0.3+Math.sin(l.glow*3)*0.15;
+    ctx.fillStyle=l.type==='gold'?'#fbbf24':l.gear.rarityColor;
+    ctx.beginPath();ctx.arc(0,0,14*pulse,0,Math.PI*2);ctx.fill();
+    ctx.globalAlpha=1;
+    ctx.font='16px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(l.icon,0,0);
+    ctx.restore();
+  });
+
   // enemies
   enemies.forEach(e=>{
     if(e.hp<=0)return;
     ctx.save();
     ctx.translate(e.x,e.y);
     if(e.hit>0)ctx.globalAlpha=0.5+Math.sin(e.hit*40)*0.5;
-    // body
     if(e.type==='boss'){
       ctx.fillStyle=e.color;
       ctx.beginPath();ctx.arc(0,0,e.r,0,Math.PI*2);ctx.fill();
       ctx.fillStyle='#991b1b';ctx.beginPath();ctx.arc(0,0,e.r-4,0,Math.PI*2);ctx.fill();
       ctx.fillStyle=e.color;ctx.beginPath();ctx.arc(0,0,e.r-8,0,Math.PI*2);ctx.fill();
-      // crown
       ctx.fillStyle='#fbbf24';
       ctx.fillRect(-12,-e.r-8,24,8);
       ctx.beginPath();ctx.moveTo(-12,-e.r-8);ctx.lineTo(-8,-e.r-16);ctx.lineTo(-4,-e.r-8);ctx.fill();
@@ -583,13 +949,11 @@ function draw(){
       ctx.fillStyle=e.color;
       ctx.beginPath();ctx.moveTo(0,-e.r);ctx.lineTo(e.r,e.r);ctx.lineTo(-e.r,e.r);ctx.closePath();ctx.fill();
     }
-    // eyes
     const dx=player.x-e.x,dy=player.y-e.y,da=Math.atan2(dy,dx);
     ctx.fillStyle=e.eyeColor;
     const ex=Math.cos(da)*3,ey=Math.sin(da)*3;
     ctx.beginPath();ctx.arc(-4+ex,-3+ey,2.5,0,Math.PI*2);ctx.fill();
     ctx.beginPath();ctx.arc(4+ex,-3+ey,2.5,0,Math.PI*2);ctx.fill();
-    // hp bar
     if(e.hp<e.maxHp){
       ctx.fillStyle='rgba(0,0,0,0.5)';ctx.fillRect(-e.r,-e.r-8,e.r*2,5);
       ctx.fillStyle='#ef4444';ctx.fillRect(-e.r,-e.r-8,e.r*2*(e.hp/e.maxHp),5);
@@ -608,13 +972,10 @@ function draw(){
   ctx.save();
   ctx.translate(player.x,player.y);
   if(player.invincible>0)ctx.globalAlpha=0.4+Math.sin(player.invincible*30)*0.3;
-  // shadow
   ctx.fillStyle='rgba(0,0,0,0.3)';ctx.beginPath();ctx.ellipse(0,player.r-2,player.r,player.r*0.4,0,0,Math.PI*2);ctx.fill();
-  // body
   ctx.fillStyle='#3b82f6';ctx.beginPath();ctx.arc(0,0,player.r,0,Math.PI*2);ctx.fill();
   ctx.fillStyle='#2563eb';ctx.beginPath();ctx.arc(0,2,player.r-3,0,Math.PI*2);ctx.fill();
   ctx.fillStyle='#3b82f6';ctx.beginPath();ctx.arc(0,-1,player.r-5,0,Math.PI*2);ctx.fill();
-  // eyes
   const fa=Math.atan2(player.facing.y,player.facing.x);
   const pex=Math.cos(fa)*4,pey=Math.sin(fa)*4;
   ctx.fillStyle='#fff';
@@ -623,7 +984,6 @@ function draw(){
   ctx.fillStyle='#1e293b';
   ctx.beginPath();ctx.arc(-4+pex*1.3,-2+pey*1.3,1.5,0,Math.PI*2);ctx.fill();
   ctx.beginPath();ctx.arc(4+pex*1.3,-2+pey*1.3,1.5,0,Math.PI*2);ctx.fill();
-  // attack slash
   if(player.attackAnim>0){
     ctx.strokeStyle='rgba(251,191,36,0.6)';ctx.lineWidth=3;
     ctx.beginPath();ctx.arc(player.facing.x*20,player.facing.y*20,22,fa-1,fa+1);ctx.stroke();
@@ -653,7 +1013,6 @@ function draw(){
     ctx.fillRect(0,0,W,H);
   }
 
-  // minimap
   drawMinimap();
 }
 
@@ -662,16 +1021,16 @@ function drawMinimap(){
   mc.clearRect(0,0,80,80);
   mc.fillStyle='rgba(0,0,0,0.5)';
   mc.fillRect(0,0,80,80);
-  const totalRooms=roomDefs.length;
+  const totalRooms=dungeonRooms.length;
   const roomH=12,roomW=16,gap=4;
   const startY=(80-(totalRooms*(roomH+gap)-gap))/2;
   for(let i=0;i<totalRooms;i++){
     const rx=(80-roomW)/2,ry=startY+i*(roomH+gap);
-    mc.fillStyle=i===currentRoom?'#3b82f6':enemies.length===0||i!==currentRoom?'#475569':'#475569';
+    mc.fillStyle=i===currentRoom?'#3b82f6':'#475569';
     if(i<currentRoom)mc.fillStyle='#22c55e';
     mc.fillRect(rx,ry,roomW,roomH);
     if(i===currentRoom){mc.fillStyle='#fbbf24';mc.fillRect(rx+6,ry+3,4,6);}
-    if(roomDefs[i].isBoss){mc.fillStyle='#ef4444';mc.fillRect(rx+2,ry+2,3,3);}
+    if(dungeonRooms[i].isBoss){mc.fillStyle='#ef4444';mc.fillRect(rx+2,ry+2,3,3);}
   }
 }
 
