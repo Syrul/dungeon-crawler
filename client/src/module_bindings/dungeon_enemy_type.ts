@@ -21,6 +21,12 @@ export default __t.object("DungeonEnemy", {
   maxHp: __t.i32(),
   atk: __t.i32(),
   isAlive: __t.bool(),
+  aiState: __t.string(),
+  stateTimer: __t.f32(),
+  targetX: __t.f32(),
+  targetY: __t.f32(),
+  facingAngle: __t.f32(),
+  packId: __t.option(__t.u64()),
 });
 
 

@@ -21,4 +21,10 @@ export default __t.row({
   maxHp: __t.i32().name("max_hp"),
   atk: __t.i32(),
   isAlive: __t.bool().name("is_alive"),
+  aiState: __t.string().name("ai_state"),
+  stateTimer: __t.f32().name("state_timer"),
+  targetX: __t.f32().name("target_x"),
+  targetY: __t.f32().name("target_y"),
+  facingAngle: __t.f32().name("facing_angle"),
+  packId: __t.option(__t.u64()).name("pack_id"),
 });

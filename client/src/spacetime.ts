@@ -187,6 +187,33 @@ class SpacetimeClient {
     }
   }
 
+  /** Get all other players currently participating in a dungeon */
+  getOtherPlayersInDungeon(dungeonId: bigint): Array<{identity: string, x: number, y: number, fx: number, fy: number}> {
+    if (!this.conn || !this._state.identity) return [];
+    try {
+      const targetDungeonId = dungeonId.toString();
+      // Build set of active participant identities for this dungeon
+      const participants = new Set<string>();
+      for (const p of (this.conn.db as any).dungeonParticipant.iter()) {
+        if (p.dungeonId.toString() === targetDungeonId) {
+          participants.add(p.playerIdentity.toHexString());
+        }
+      }
+
+      const result: Array<{identity: string, x: number, y: number, fx: number, fy: number}> = [];
+      for (const pos of (this.conn.db as any).playerPosition.iter()) {
+        const id = pos.identity.toHexString();
+        if (id !== this._state.identity && pos.dungeonId.toString() === targetDungeonId && participants.has(id)) {
+          result.push({ identity: id, x: pos.x, y: pos.y, fx: pos.facingX, fy: pos.facingY });
+        }
+      }
+      return result;
+    } catch (e) {
+      console.warn('[SpacetimeDB] Failed to read other players:', e);
+      return [];
+    }
+  }
+
   /** Listen for active_dungeon table inserts */
   onDungeonInsert(cb: (dungeon: { id: bigint; ownerIdentity: string }) => void) {
     if (!this.conn) return;
@@ -212,7 +239,7 @@ class SpacetimeClient {
   // --- Co-op listeners ---
 
   /** Listen for other players' position changes */
-  onPlayerPositionChange(cb: (identity: string, dungeonId: bigint, x: number, y: number, fx: number, fy: number) => void) {
+  onPlayerPositionChange(cb: (identity: string, dungeonId: bigint, x: number, y: number, fx: number, fy: number) => void, onDelete?: (identity: string) => void) {
     if (!this.conn) return;
     try {
       const self = this._state.identity;
@@ -227,12 +254,70 @@ class SpacetimeClient {
         if (id === self) return;
         cb(id, row.dungeonId, row.x, row.y, row.facingX, row.facingY);
       });
+      if (onDelete) {
+        (this.conn.db as any).playerPosition.onDelete((_ctx: any, row: any) => {
+          const id = row.identity.toHexString();
+          if (id === self) return;
+          onDelete(id);
+        });
+      }
     } catch (e) {
       console.warn('[SpacetimeDB] Failed to register player position listener:', e);
     }
   }
 
-  /** Listen for enemy HP changes */
+  /** Listen for enemy position and state changes (for server-authoritative AI) */
+  onEnemyUpdate(cb: (enemy: {
+    id: bigint,
+    x: number,
+    y: number,
+    hp: number,
+    maxHp: number,
+    isAlive: boolean,
+    roomIndex: number,
+    enemyType: string,
+    aiState: string,
+    stateTimer: number,
+    targetX: number,
+    targetY: number,
+    facingAngle: number,
+    packId: bigint | null,
+  }) => void, onDelete?: (id: bigint) => void) {
+    if (!this.conn) return;
+    try {
+      const mapRow = (row: any) => ({
+        id: row.id,
+        x: row.x,
+        y: row.y,
+        hp: row.hp,
+        maxHp: row.maxHp,
+        isAlive: row.isAlive,
+        roomIndex: row.roomIndex,
+        enemyType: row.enemyType,
+        aiState: row.aiState,
+        stateTimer: row.stateTimer,
+        targetX: row.targetX,
+        targetY: row.targetY,
+        facingAngle: row.facingAngle,
+        packId: row.packId ?? null,
+      });
+      (this.conn.db as any).dungeonEnemy.onInsert((_ctx: any, row: any) => {
+        cb(mapRow(row));
+      });
+      (this.conn.db as any).dungeonEnemy.onUpdate((_ctx: any, _old: any, row: any) => {
+        cb(mapRow(row));
+      });
+      if (onDelete) {
+        (this.conn.db as any).dungeonEnemy.onDelete((_ctx: any, row: any) => {
+          onDelete(row.id);
+        });
+      }
+    } catch (e) {
+      console.warn('[SpacetimeDB] Failed to register enemy update listener:', e);
+    }
+  }
+
+  /** Legacy: Listen for enemy HP changes (backwards compatible) */
   onEnemyChange(cb: (enemyId: bigint, hp: number, isAlive: boolean, roomIndex: number) => void) {
     if (!this.conn) return;
     try {
@@ -245,18 +330,59 @@ class SpacetimeClient {
   }
 
   /** Listen for loot drop inserts and updates */
-  onLootDropChange(cb: (loot: { id: bigint, x: number, y: number, itemDataJson: string, rarity: string, pickedUp: boolean }) => void) {
+  onLootDropChange(cb: (loot: { id: bigint, dungeonId: bigint, roomIndex: number, x: number, y: number, itemDataJson: string, rarity: string, pickedUp: boolean }) => void) {
     if (!this.conn) return;
     try {
-      const handler = (_ctx: any, row: any) => {
-        cb({ id: row.id, x: row.x, y: row.y, itemDataJson: row.itemDataJson, rarity: row.rarity, pickedUp: row.pickedUp });
-      };
-      (this.conn.db as any).lootDrop.onInsert(handler);
+      const mapRow = (row: any) => ({
+        id: row.id,
+        dungeonId: row.dungeonId,
+        roomIndex: row.roomIndex,
+        x: row.x,
+        y: row.y,
+        itemDataJson: row.itemDataJson,
+        rarity: row.rarity,
+        pickedUp: row.pickedUp,
+      });
+      (this.conn.db as any).lootDrop.onInsert((_ctx: any, row: any) => {
+        cb(mapRow(row));
+      });
       (this.conn.db as any).lootDrop.onUpdate((_ctx: any, _old: any, row: any) => {
-        cb({ id: row.id, x: row.x, y: row.y, itemDataJson: row.itemDataJson, rarity: row.rarity, pickedUp: row.pickedUp });
+        cb(mapRow(row));
       });
     } catch (e) {
       console.warn('[SpacetimeDB] Failed to register loot drop listener:', e);
+    }
+  }
+
+  /** Listen for player stats updates (HP, XP, level changes from server) */
+  onPlayerUpdate(cb: (player: { hp: number, maxHp: number, xp: number, level: number }) => void) {
+    if (!this.conn || !this._state.identity) return;
+    try {
+      const self = this._state.identity;
+      console.log('[SpacetimeDB] Registering player update listener for identity:', self);
+
+      // Track player stat changes via onUpdate - compare oldRow vs newRow directly
+      (this.conn.db as any).player.onUpdate((_ctx: any, oldRow: any, newRow: any) => {
+        const rowIdentity = newRow.identity.toHexString();
+        // Only listen for our own player updates
+        if (rowIdentity === self) {
+          // Fire callback if HP, XP, or level changed
+          const hpChanged = newRow.hp !== oldRow.hp;
+          const xpChanged = Number(newRow.xp) !== Number(oldRow.xp);
+          const levelChanged = newRow.level !== oldRow.level;
+
+          if (hpChanged || xpChanged || levelChanged) {
+            console.log('[SpacetimeDB] Player sync:', {
+              hp: hpChanged ? `${oldRow.hp} -> ${newRow.hp}` : newRow.hp,
+              xp: xpChanged ? `${oldRow.xp} -> ${newRow.xp}` : newRow.xp,
+              level: levelChanged ? `${oldRow.level} -> ${newRow.level}` : newRow.level
+            });
+            cb({ hp: newRow.hp, maxHp: newRow.maxHp, xp: Number(newRow.xp), level: newRow.level });
+          }
+        }
+      });
+    } catch (e) {
+      console.warn('[SpacetimeDB] Failed to register player update listener:', e);
     }
   }
 
@@ -272,14 +398,58 @@ class SpacetimeClient {
     }
   }
 
-  /** Get server enemies for a dungeon+room, sorted by id */
-  getEnemiesForRoom(dungeonId: bigint, roomIndex: number): Array<{ id: bigint, hp: number, isAlive: boolean }> {
+  /** Get server enemies for a dungeon+room, sorted by id (full data for interpolation) */
+  getEnemiesForRoom(dungeonId: bigint, roomIndex: number): Array<{
+    id: bigint,
+    x: number,
+    y: number,
+    hp: number,
+    maxHp: number,
+    isAlive: boolean,
+    enemyType: string,
+    aiState: string,
+    stateTimer: number,
+    targetX: number,
+    targetY: number,
+    facingAngle: number,
+    packId: bigint | null,
+  }> {
     if (!this.conn) return [];
     try {
-      const result: Array<{ id: bigint, hp: number, isAlive: boolean }> = [];
+      const result: Array<{
+        id: bigint,
+        x: number,
+        y: number,
+        hp: number,
+        maxHp: number,
+        isAlive: boolean,
+        enemyType: string,
+        aiState: string,
+        stateTimer: number,
+        targetX: number,
+        targetY: number,
+        facingAngle: number,
+        packId: bigint | null,
+      }> = [];
+      const targetDungeonId = dungeonId.toString();
       for (const e of (this.conn.db as any).dungeonEnemy.iter()) {
-        if (e.dungeonId === dungeonId && e.roomIndex === roomIndex) {
-          result.push({ id: e.id, hp: e.hp, isAlive: e.isAlive });
+        // Compare as strings to handle BigInt comparison issues
+        if (e.dungeonId.toString() === targetDungeonId && e.roomIndex === roomIndex) {
+          result.push({
+            id: e.id,
+            x: e.x,
+            y: e.y,
+            hp: e.hp,
+            maxHp: e.maxHp,
+            isAlive: e.isAlive,
+            enemyType: e.enemyType,
+            aiState: e.aiState,
+            stateTimer: e.stateTimer,
+            targetX: e.targetX,
+            targetY: e.targetY,
+            facingAngle: e.facingAngle,
+            packId: e.packId ?? null,
+          });
         }
       }
       result.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));

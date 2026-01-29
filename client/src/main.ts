@@ -1,7 +1,7 @@
 // main.ts — Entry point
-// Tries SpacetimeDB connection, falls back to offline mode
+// Server-authoritative multiplayer with client interpolation
 
-import { initGame, setGameMode, setCallbacks, restoreFromServer, updateOtherPlayer, syncEnemyHp, addServerLoot, removeServerLoot, syncRoom, getCurrentRoom, setServerEnemyIds, getServerEnemyIds } from './game';
+import { initGame, setGameMode, setCallbacks, restoreFromServer, updateOtherPlayer, removeOtherPlayer, syncEnemyFromServer, removeServerEnemy, addServerLoot, removeServerLoot, syncRoom, getCurrentRoom, initServerEnemies, getServerEnemyIds, syncPlayerStats, clientToServerX, clientToServerY } from './game';
 import { spacetimeClient } from './spacetime';
 
 const statusDot = document.getElementById('connection-status');
@@ -29,18 +29,34 @@ async function main() {
 
     // Co-op: listen for other player positions
     spacetimeClient.onPlayerPositionChange((identity, dungeonId, x, y, fx, fy) => {
-      if (activeDungeonId != null && dungeonId === activeDungeonId) {
+      // Use string comparison for bigint
+      if (activeDungeonId != null && dungeonId.toString() === activeDungeonId.toString()) {
         updateOtherPlayer(identity, x, y, fx, fy);
       }
+    }, (identity) => {
+      removeOtherPlayer(identity);
     });
 
-    // Co-op: listen for enemy HP changes from server
-    spacetimeClient.onEnemyChange((enemyId, hp, isAlive, _roomIndex) => {
-      syncEnemyHp([{id: enemyId, hp, isAlive}]);
+    // Server-authoritative enemies: listen for all enemy position/state updates
+    spacetimeClient.onEnemyUpdate((enemy) => {
+      syncEnemyFromServer(enemy);
+    }, (id) => {
+      removeServerEnemy(id);
+    });
+
+    // Server-authoritative stats: listen for player HP, XP, level updates
+    spacetimeClient.onPlayerUpdate((playerData) => {
+      syncPlayerStats(playerData.hp, playerData.maxHp, playerData.xp, playerData.level);
     });
 
     // Co-op: listen for server loot drops
     spacetimeClient.onLootDropChange((loot) => {
+      // Only process loot for current dungeon and room
+      if (activeDungeonId == null) return;
+      // Use string comparison for bigint
+      if (loot.dungeonId.toString() !== activeDungeonId.toString()) return;
+      if (loot.roomIndex !== getCurrentRoom()) return;
+
       if (loot.pickedUp) {
         removeServerLoot(loot.id);
       } else {
@@ -50,17 +66,18 @@ async function main() {
 
     // Co-op: listen for room transitions from other player
     spacetimeClient.onDungeonUpdate((dungeon) => {
-      if (activeDungeonId != null && dungeon.id === activeDungeonId) {
+      // Use string comparison for bigint
+      if (activeDungeonId != null && dungeon.id.toString() === activeDungeonId.toString()) {
         const newRoom = dungeon.currentRoom;
         if (newRoom !== getCurrentRoom()) {
           console.log('[Main] Room sync from server: room', newRoom);
           syncRoom(newRoom);
-          // Re-map enemy IDs for new room
+          // Re-init enemies for new room
           setTimeout(() => {
             if (activeDungeonId != null) {
               const serverEnemies = spacetimeClient.getEnemiesForRoom(activeDungeonId, newRoom);
-              setServerEnemyIds(serverEnemies.map(e => e.id));
-              console.log('[Main] Re-mapped', serverEnemies.length, 'server enemy IDs for room', newRoom);
+              initServerEnemies(serverEnemies);
+              console.log('[Main] Re-initialized', serverEnemies.length, 'server enemies for room', newRoom);
             }
           }, 500);
         }
@@ -79,9 +96,14 @@ async function main() {
           if (d) {
             activeDungeonId = d.id;
             console.log('[Main] Resolved active dungeon ID (poll):', activeDungeonId);
+            // Initialize enemies from server (full data for interpolation)
             const serverEnemies = spacetimeClient.getEnemiesForRoom(activeDungeonId, getCurrentRoom());
-            setServerEnemyIds(serverEnemies.map(e => e.id));
-            console.log('[Main] Mapped', serverEnemies.length, 'server enemy IDs for room', getCurrentRoom());
+            initServerEnemies(serverEnemies);
+            console.log('[Main] Initialized', serverEnemies.length, 'server enemies for room', getCurrentRoom());
+            // Load existing players already in the dungeon
+            const existingPlayers = spacetimeClient.getOtherPlayersInDungeon(activeDungeonId);
+            existingPlayers.forEach(p => updateOtherPlayer(p.identity, p.x, p.y, p.fx, p.fy));
+            console.log('[Main] Loaded', existingPlayers.length, 'existing players in dungeon');
             clearInterval(poll);
           }
         }, 300);
@@ -91,19 +113,20 @@ async function main() {
       onEnterRoom: (roomIndex) => {
         if (activeDungeonId != null) {
           spacetimeClient.enterRoom(activeDungeonId, roomIndex);
-          // Re-map enemy IDs for new room
+          // Re-init enemies for new room
           setTimeout(() => {
             if (activeDungeonId != null) {
               const serverEnemies = spacetimeClient.getEnemiesForRoom(activeDungeonId, roomIndex);
-              setServerEnemyIds(serverEnemies.map(e => e.id));
-              console.log('[Main] Re-mapped', serverEnemies.length, 'server enemy IDs for room', roomIndex);
+              initServerEnemies(serverEnemies);
+              console.log('[Main] Re-initialized', serverEnemies.length, 'server enemies for room', roomIndex);
             }
           }, 500);
         }
       },
       onPlayerMove: (x, y, facingX, facingY) => {
         if (activeDungeonId != null) {
-          spacetimeClient.updatePosition(activeDungeonId, x, y, facingX, facingY);
+          // Scale client coords to server coords before sending
+          spacetimeClient.updatePosition(activeDungeonId, clientToServerX(x), clientToServerY(y), facingX, facingY);
         }
       },
       onAttack: (enemyIdx) => {
@@ -137,8 +160,8 @@ async function main() {
     spacetimeClient.onChange((state) => {
       setStatusDot(state.connected);
       if (!state.connected) {
-        console.log('[Main] Lost connection, falling back to offline');
-        setGameMode('offline');
+        console.log('[Main] Lost connection to server');
+        // Show reconnecting message - game requires server connection
       }
     });
 
@@ -169,12 +192,14 @@ async function main() {
       }
     }, 1000);
   } else {
-    console.log('[Main] Offline mode — SpacetimeDB not available');
-    setGameMode('offline');
+    console.error('[Main] Failed to connect to SpacetimeDB server');
     setStatusDot(false);
+    // Show connection required message
+    alert('Could not connect to game server. Please ensure SpacetimeDB is running.');
+    return;
   }
 
-  // Start the game regardless
+  // Start the game (only if connected)
   initGame();
 }
 

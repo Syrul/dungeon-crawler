@@ -1,10 +1,9 @@
 // game.ts — Dungeon Crawler game logic
-// Extracted from the original index.html <script> block
-// Supports offline mode (fully self-contained) and online mode stub
+// Server-authoritative multiplayer with client interpolation
 
 import type { GameMode, GameCallbacks } from './types';
 
-let gameMode: GameMode = 'offline';
+let gameMode: GameMode = 'online'; // Always online - server-authoritative
 let callbacks: GameCallbacks = {};
 
 export function setGameMode(mode: GameMode) {
@@ -15,6 +14,15 @@ export function setCallbacks(cb: GameCallbacks) {
   callbacks = cb;
 }
 
+// Discard functions for inventory management
+function discardFromBackpack(idx: number) {
+  backpack.splice(idx, 1);
+}
+
+function discardCard(idx: number) {
+  cardInventory.splice(idx, 1);
+}
+
 // Make functions available globally for inline onclick handlers in tooltips
 function exposeGlobals() {
   (window as any).equipFromBackpack = equipFromBackpack;
@@ -22,12 +30,14 @@ function exposeGlobals() {
   (window as any).renderInventory = renderInventory;
   (window as any).unequipItem = unequipItem;
   (window as any).openCardSlotModal = openCardSlotModal;
+  (window as any).discardFromBackpack = discardFromBackpack;
+  (window as any).discardCard = discardCard;
   (window as any).backpack = backpack;
   (window as any).cardInventory = cardInventory;
 }
 
 // ─── CONFIG ───
-let TILE = 36;
+const TILE = 36; // Fixed to match server - no dynamic scaling
 const PLAYER_R = 14;
 const CAM_SMOOTH = 0.08;
 
@@ -388,7 +398,7 @@ function getComputedStats(item){
   // Compute total stats including affix flat bonuses
   const s={ATK:0,DEF:0,HP:0,Speed:0,crit:0,lifesteal:0,reflect:0,dropRate:0,goldBonus:0};
   // Base stats
-  for(const[k,v]of Object.entries(item.stats)){if(k in s)s[k]+=v;}
+  if(item.stats){for(const[k,v]of Object.entries(item.stats)){if(k in s)s[k]+=v;}}
   // Affix flat bonuses
   if(item.affixes){
     item.affixes.forEach(a=>{
@@ -565,6 +575,55 @@ let otherPlayers: Map<string, OtherPlayer> = new Map();
 let serverEnemyIds: bigint[] = []; // maps local enemy index → server enemy ID
 let serverLootMap: Map<string, {id: bigint, x: number, y: number, itemDataJson: string, rarity: string}> = new Map();
 
+// ─── SERVER-AUTHORITATIVE ENEMY STATE (for interpolation) ───
+const SERVER_TICK_MS = 50; // Server runs at 20Hz
+interface EnemyRenderState {
+  serverId: bigint;
+  // Current interpolated position
+  x: number;
+  y: number;
+  // Server position for interpolation target
+  serverX: number;
+  serverY: number;
+  // Previous position (for interpolation start)
+  prevX: number;
+  prevY: number;
+  // State from server
+  hp: number;
+  maxHp: number;
+  isAlive: boolean;
+  enemyType: string;
+  aiState: string;
+  stateTimer: number;
+  targetX: number;
+  targetY: number;
+  facingAngle: number;
+  packId: bigint | null;
+  // Timing
+  lastUpdateTime: number;
+  // Visual state
+  hit: number; // flash on damage
+  color: string;
+  r: number;
+}
+let serverEnemyStates: Map<string, EnemyRenderState> = new Map();
+
+function getEnemyVisuals(enemyType: string): { color: string, r: number, eyeColor: string } {
+  switch (enemyType) {
+    case 'slime': return { color: '#22c55e', r: 12, eyeColor: '#fff' };
+    case 'skeleton': return { color: '#e2e8f0', r: 13, eyeColor: '#1a1a2e' };
+    case 'archer': return { color: '#a78bfa', r: 12, eyeColor: '#fff' };
+    case 'charger': return { color: '#ea580c', r: 14, eyeColor: '#fff' };
+    case 'wolf': return { color: '#9ca3af', r: 10, eyeColor: '#fbbf24' };
+    case 'bomber': return { color: '#f97316', r: 11, eyeColor: '#fff' };
+    case 'necromancer': return { color: '#7e22ce', r: 14, eyeColor: '#a855f7' };
+    case 'shield_knight': return { color: '#6b7280', r: 15, eyeColor: '#fff' };
+    case 'boss': return { color: '#ef4444', r: 28, eyeColor: '#fbbf24' };
+    case 'bat': return { color: '#374151', r: 10, eyeColor: '#ef4444' };
+    default: return { color: '#ffffff', r: 12, eyeColor: '#000' };
+  }
+}
+
 export function updateOtherPlayer(id: string, x: number, y: number, fx: number, fy: number) {
   const existing = otherPlayers.get(id);
   if (existing) {
@@ -591,31 +650,241 @@ function lerpOtherPlayers(dt: number) {
 export function getEnemies() { return enemies; }
 export function setServerEnemyIds(ids: bigint[]) { serverEnemyIds = ids; }
 export function getServerEnemyIds() { return serverEnemyIds; }
+
+// Server and client now use the same TILE size (36) - no conversion needed
+function serverToClientX(x: number): number { return x; }
+function serverToClientY(y: number): number { return y; }
+export function clientToServerX(x: number): number { return x; }
+export function clientToServerY(y: number): number { return y; }
+
+// Initialize enemies from server data (called when entering a room)
+export function initServerEnemies(serverEnemies: Array<{
+  id: bigint, x: number, y: number, hp: number, maxHp: number, isAlive: boolean,
+  enemyType: string, aiState: string, stateTimer: number, targetX: number, targetY: number,
+  facingAngle: number, packId: bigint | null
+}>) {
+  serverEnemyStates.clear();
+  serverEnemyIds = [];
+  const now = performance.now();
+
+  for (const e of serverEnemies) {
+    const key = e.id.toString();
+    const visuals = getEnemyVisuals(e.enemyType);
+    const cx = serverToClientX(e.x), cy = serverToClientY(e.y);
+    serverEnemyStates.set(key, {
+      serverId: e.id,
+      x: cx, y: cy,
+      serverX: cx, serverY: cy,
+      prevX: cx, prevY: cy,
+      hp: e.hp, maxHp: e.maxHp,
+      isAlive: e.isAlive,
+      enemyType: e.enemyType,
+      aiState: e.aiState,
+      stateTimer: e.stateTimer,
+      targetX: e.targetX, targetY: e.targetY,
+      facingAngle: e.facingAngle,
+      packId: e.packId,
+      lastUpdateTime: now,
+      hit: 0,
+      color: visuals.color,
+      r: visuals.r,
+    });
+    serverEnemyIds.push(e.id);
+  }
+  console.log('[Game] Initialized', serverEnemyStates.size, 'server enemies');
+}
+
+// Update enemy from server (called on every server tick)
+export function syncEnemyFromServer(enemy: {
+  id: bigint, x: number, y: number, hp: number, maxHp: number, isAlive: boolean,
+  roomIndex: number, enemyType: string, aiState: string, stateTimer: number,
+  targetX: number, targetY: number, facingAngle: number, packId: bigint | null
+}) {
+  // Only process enemies for the current room
+  if (enemy.roomIndex !== currentRoom) return;
+
+  const key = enemy.id.toString();
+  const existing = serverEnemyStates.get(key);
+  const now = performance.now();
+
+  if (existing) {
+    // Check if enemy took damage
+    if (enemy.hp < existing.hp) {
+      existing.hit = 0.15;
+      // Damage number
+      dmgNumbers.push({
+        x: existing.x, y: existing.y - existing.r,
+        val: existing.hp - enemy.hp,
+        life: 0.8, vy: -60, color: '#fbbf24'
+      });
+    }
+
+    // Check if enemy died
+    if (!enemy.isAlive && existing.isAlive) {
+      // Death particles
+      for (let i = 0; i < 12; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const sp = 40 + Math.random() * 80;
+        particles.push({
+          x: existing.x, y: existing.y,
+          vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+          life: 0.6, maxLife: 0.6,
+          r: 3 + Math.random() * 4,
+          color: existing.color
+        });
+      }
+    }
+
+    // Shift position: current server → prev, new server → current server (scaled)
+    existing.prevX = existing.serverX;
+    existing.prevY = existing.serverY;
+    existing.serverX = serverToClientX(enemy.x);
+    existing.serverY = serverToClientY(enemy.y);
+    existing.hp = enemy.hp;
+    existing.maxHp = enemy.maxHp;
+    existing.isAlive = enemy.isAlive;
+    existing.aiState = enemy.aiState;
+    existing.stateTimer = enemy.stateTimer;
+    existing.targetX = enemy.targetX;
+    existing.targetY = enemy.targetY;
+    existing.facingAngle = enemy.facingAngle;
+    existing.lastUpdateTime = now;
+  } else {
+    // New enemy (spawned by necromancer, etc.)
+    const visuals = getEnemyVisuals(enemy.enemyType);
+    const cx = serverToClientX(enemy.x), cy = serverToClientY(enemy.y);
+    serverEnemyStates.set(key, {
+      serverId: enemy.id,
+      x: cx, y: cy,
+      serverX: cx, serverY: cy,
+      prevX: cx, prevY: cy,
+      hp: enemy.hp, maxHp: enemy.maxHp,
+      isAlive: enemy.isAlive,
+      enemyType: enemy.enemyType,
+      aiState: enemy.aiState,
+      stateTimer: enemy.stateTimer,
+      targetX: enemy.targetX, targetY: enemy.targetY,
+      facingAngle: enemy.facingAngle,
+      packId: enemy.packId,
+      lastUpdateTime: now,
+      hit: 0,
+      color: visuals.color,
+      r: visuals.r,
+    });
+    if (!serverEnemyIds.includes(enemy.id)) {
+      serverEnemyIds.push(enemy.id);
+    }
+  }
+}
+
+// Remove enemy from tracking
+export function removeServerEnemy(id: bigint) {
+  const key = id.toString();
+  serverEnemyStates.delete(key);
+  serverEnemyIds = serverEnemyIds.filter(eid => eid !== id);
+}
+
+// Get interpolated position for smooth rendering
+function getInterpolatedEnemyPosition(state: EnemyRenderState): { x: number, y: number } {
+  const elapsed = performance.now() - state.lastUpdateTime;
+
+  // If too much time has passed (lag), snap to server position
+  if (elapsed > SERVER_TICK_MS * 3) {
+    return { x: state.serverX, y: state.serverY };
+  }
+
+  // Interpolate between previous and current server positions
+  const t = Math.min(elapsed / SERVER_TICK_MS, 1.0);
+  return {
+    x: state.prevX + (state.serverX - state.prevX) * t,
+    y: state.prevY + (state.serverY - state.prevY) * t,
+  };
+}
+
+// Update interpolated positions (called every frame)
+function updateServerEnemyInterpolation() {
+  serverEnemyStates.forEach((state) => {
+    if (!state.isAlive) return;
+    const pos = getInterpolatedEnemyPosition(state);
+    state.x = pos.x;
+    state.y = pos.y;
+    // Decay hit flash
+    if (state.hit > 0) state.hit -= 0.016; // ~60fps
+  });
+}
+
+// Get all server enemies for rendering
+function getServerEnemiesForRender(): EnemyRenderState[] {
+  return Array.from(serverEnemyStates.values());
+}
+
+// Legacy sync function (for backwards compatibility)
 export function syncEnemyHp(updates: Array<{id: bigint, hp: number, isAlive: boolean}>) {
   for (const u of updates) {
-    const idx = serverEnemyIds.indexOf(u.id);
-    if (idx >= 0 && enemies[idx]) {
-      if (!u.isAlive && enemies[idx].hp > 0) {
-        enemies[idx].hp = 0;
+    const key = u.id.toString();
+    const state = serverEnemyStates.get(key);
+    if (state) {
+      if (!u.isAlive && state.isAlive) {
         // death particles
-        for(let i=0;i<10;i++){const a=Math.random()*Math.PI*2;const sp=40+Math.random()*60;particles.push({x:enemies[idx].x,y:enemies[idx].y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:0.5,maxLife:0.5,r:3,color:enemies[idx].color});}
-      } else if (u.hp < enemies[idx].hp) {
-        enemies[idx].hp = u.hp;
-        enemies[idx].hit = 0.1;
+        for(let i=0;i<10;i++){const a=Math.random()*Math.PI*2;const sp=40+Math.random()*60;particles.push({x:state.x,y:state.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:0.5,maxLife:0.5,r:3,color:state.color});}
+      } else if (u.hp < state.hp) {
+        state.hit = 0.1;
       }
+      state.hp = u.hp;
+      state.isAlive = u.isAlive;
     }
   }
 }
 export function addServerLoot(loot: {id: bigint, x: number, y: number, itemDataJson: string, rarity: string}) {
+  console.log('[Game] addServerLoot called:', { id: loot.id.toString(), x: loot.x, y: loot.y, rarity: loot.rarity, itemDataJson: loot.itemDataJson });
   const key = loot.id.toString();
   if (serverLootMap.has(key)) return;
   serverLootMap.set(key, loot);
+
+  // Scale server coordinates to client coordinates
+  const clientX = serverToClientX(loot.x);
+  const clientY = serverToClientY(loot.y);
+
+  // Parse item data to get enemy source type
+  let enemyType = 'slime'; // Default
+  try {
+    const itemData = JSON.parse(loot.itemDataJson);
+    if (itemData.source) {
+      enemyType = itemData.source;
+    }
+  } catch (e) {
+    console.warn('[Game] Failed to parse loot itemDataJson:', e);
+  }
+
+  // Get drop table for this enemy type
+  const table = DROP_TABLES[enemyType] || DROP_TABLES.slime;
+  const slot = pickSlotFromTable(table);
+
+  // Generate proper gear based on rarity
+  const isBoss = enemyType === 'boss';
+  const gear = generateGear(slot, dungeonDepth, isBoss);
+  console.log('[Game] Generated gear:', { enemyType, slot, gearName: gear.name, gearRarity: gear.rarity, icon: gear.icon });
+
+  // Override rarity if server specifies it
+  if (loot.rarity) {
+    gear.rarity = loot.rarity;
+    gear.rarityColor = loot.rarity === 'rare' ? '#3b82f6' :
+                       loot.rarity === 'uncommon' ? '#22c55e' :
+                       loot.rarity === 'epic' ? '#a855f7' :
+                       loot.rarity === 'legendary' ? '#f97316' : '#fff';
+  }
+
   // Add to lootDrops for rendering
-  const rarityColor = loot.rarity === 'rare' ? '#3b82f6' : loot.rarity === 'uncommon' ? '#22c55e' : loot.rarity === 'epic' ? '#a855f7' : loot.rarity === 'legendary' ? '#f97316' : '#fff';
+  console.log('[Game] Adding loot at coords:', { x: clientX, y: clientY });
   lootDrops.push({
-    x: loot.x, y: loot.y, type: 'gear',
-    gear: { rarity: loot.rarity, rarityColor, icon: '📦', name: 'Loot' },
-    glow: 0, icon: '📦', bouncing: false, _serverLootId: loot.id,
+    x: clientX,
+    y: clientY,
+    type: 'gear',
+    gear,
+    glow: 0,
+    icon: gear.icon,
+    bouncing: false,
+    _serverLootId: loot.id,
   });
 }
 export function removeServerLoot(id: bigint) {
@@ -625,6 +894,9 @@ export function removeServerLoot(id: bigint) {
 }
 export function syncRoom(roomIndex: number) {
   if (roomIndex === currentRoom) return;
+  serverLootMap.clear();  // Clear stale loot from previous room
+  serverEnemyStates.clear();  // Clear stale enemies from previous room
+  serverEnemyIds = [];
   goToRoom(roomIndex, roomIndex > currentRoom ? 'top' : 'bottom');
 }
 export function getCurrentRoom() { return currentRoom; }
@@ -903,6 +1175,7 @@ function init(){
   resize();
   window.addEventListener('resize',resize);
   setupTouch();
+  setupKeyboard();
   document.getElementById('btn-start').addEventListener('click',startGame);
   document.getElementById('btn-restart').addEventListener('click',()=>{document.getElementById('screen-overlay').style.display='none';showHub();});
   document.getElementById('btn-retry').addEventListener('click',()=>{document.getElementById('death-screen').style.display='none';showHub();});
@@ -920,13 +1193,28 @@ function init(){
 }
 
 let gameScale=1;
+let gameOffsetX=0;
+let gameOffsetY=0;
+
+// Fixed game dimensions (mobile portrait 9:16 aspect ratio)
+const GAME_WIDTH = ROOM_W * TILE;  // 540px
+const GAME_HEIGHT = ROOM_H * TILE; // 720px
+
 function resize(){
   const dpr=window.devicePixelRatio||1;
   W=window.innerWidth;H=window.innerHeight;
-  TILE=Math.ceil(W/(ROOM_W*0.55));
+
+  // Calculate scale to fit game in window while maintaining aspect ratio
+  const scaleX = W / GAME_WIDTH;
+  const scaleY = H / GAME_HEIGHT;
+  gameScale = Math.min(scaleX, scaleY);
+
+  // Center the game with letterboxing
+  gameOffsetX = (W - GAME_WIDTH * gameScale) / 2;
+  gameOffsetY = (H - GAME_HEIGHT * gameScale) / 2;
+
   canvas.width=W*dpr;canvas.height=H*dpr;
-  gameScale=1;
-  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.setTransform(dpr*gameScale,0,0,dpr*gameScale,dpr*gameOffsetX,dpr*gameOffsetY);
 }
 
 function showHub(){
@@ -978,13 +1266,17 @@ function resetGame(){
   lootDrops=[];
   projectiles=[];
   sparkleParticles=[];
+  otherPlayers.clear();
+  serverEnemyStates.clear(); // Clear server enemy state - will be populated from server
+  serverEnemyIds = [];
+  serverLootMap.clear(); // Clear stale loot from previous dungeon
   abilities.attack.cd=0;abilities.dash.cd=0;
   gameOver=false;gameDead=false;
   slowMoTimer=0;
   yggdrasilUsed=false;
   dungeonRooms=generateDungeon(dungeonDepth);
   rooms=dungeonRooms.map(d=>{const m=makeRoom();d.doors.forEach(s=>addDoor(m,s));return m;});
-  spawnEnemies();
+  // Enemies come from server - don't spawn locally
   showRoomLabel(dungeonRooms[0].name);
   document.getElementById('depth-display').textContent='Run '+dungeonDepth;
   gameStarted=true;
@@ -1231,7 +1523,7 @@ function showItemTooltip(item,location,slotOrIdx){
     if(cardInventory.length>0&&!item.cardSlot){
       html+=`<button class="tt-btn-card" onclick="openCardSlotModal('${item.id}');closeTooltip();">Slot Card</button>`;
     }
-    html+=`<button class="tt-btn-discard" onclick="backpack.splice(${slotOrIdx},1);closeTooltip();renderInventory();">Discard</button>`;
+    html+=`<button class="tt-btn-discard" onclick="discardFromBackpack(${slotOrIdx});closeTooltip();renderInventory();">Discard</button>`;
   }else{
     html+=`<button class="tt-btn-unequip" onclick="unequipItem('${slotOrIdx}');closeTooltip();renderInventory();">Unequip</button>`;
     if(cardInventory.length>0&&!item.cardSlot){
@@ -1257,7 +1549,7 @@ function showCardInfo(cardType,idx){
     <div class="tt-stats"><div class="tt-stat positive">${cd.desc}</div></div>
     <div style="color:#94a3b8;font-size:12px;margin-top:6px">Slot into any gear piece for its bonus.</div>
     <div class="tt-actions">
-      <button class="tt-btn-discard" onclick="cardInventory.splice(${idx},1);closeTooltip();renderInventory();">Discard</button>
+      <button class="tt-btn-discard" onclick="discardCard(${idx});closeTooltip();renderInventory();">Discard</button>
       <button class="tt-btn-close" onclick="closeTooltip()">Close</button>
     </div>`;
   tt.style.display='block';
@@ -1439,6 +1731,47 @@ function resetThumb(){
   thumb.style.bottom=(base.offsetHeight/2-25)+'px';
 }
 
+// ─── KEYBOARD (WASD) ───
+const keysPressed: Set<string> = new Set();
+
+function setupKeyboard() {
+  window.addEventListener('keydown', e => {
+    const key = e.key.toLowerCase();
+    if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
+      keysPressed.add(key);
+      e.preventDefault();
+    }
+    // Space for attack, Shift for dash
+    if (key === ' ' || key === 'spacebar') { doAttack(); e.preventDefault(); }
+    if (key === 'shift') { doDash(); e.preventDefault(); }
+  });
+  window.addEventListener('keyup', e => {
+    keysPressed.delete(e.key.toLowerCase());
+  });
+  // Clear keys on blur to prevent stuck keys
+  window.addEventListener('blur', () => keysPressed.clear());
+}
+
+function updateKeyboardInput() {
+  // Only update joyVec from keyboard if joystick isn't active
+  if (joystickActive) return;
+
+  let kx = 0, ky = 0;
+  if (keysPressed.has('w') || keysPressed.has('arrowup')) ky -= 1;
+  if (keysPressed.has('s') || keysPressed.has('arrowdown')) ky += 1;
+  if (keysPressed.has('a') || keysPressed.has('arrowleft')) kx -= 1;
+  if (keysPressed.has('d') || keysPressed.has('arrowright')) kx += 1;
+
+  // Normalize diagonal movement
+  if (kx !== 0 && ky !== 0) {
+    const len = Math.sqrt(kx * kx + ky * ky);
+    kx /= len;
+    ky /= len;
+  }
+
+  joyVec = { x: kx, y: ky };
+}
+
 // ─── ABILITIES ───
 function doAttack(){
   if(abilities.attack.cd>0||gameOver||gameDead||!gameStarted)return;
@@ -1457,19 +1790,21 @@ function doAttack(){
   else if(isCrit){dmg=Math.ceil(dmg*1.5);}
   // Gungnir Tip — first hit on each enemy 2x
   
-  enemies.forEach(e=>{
-    if(e.hp<=0)return;
-    const dx=e.x-player.x,dy=e.y-player.y;
-    const dist=Math.sqrt(dx*dx+dy*dy);
-    if(dist<atkRange+e.r){
-      let finalDmg=dmg;
-      if(hasPassive('gungnirTip')&&!e._gungnirHit){
-        finalDmg*=2;e._gungnirHit=true;
+  // Attack server enemies - server handles damage calculation
+  const serverEnemies = getServerEnemiesForRender();
+  serverEnemies.forEach(e => {
+    if (!e.isAlive) return;
+    const dx = e.x - player.x, dy = e.y - player.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < atkRange + e.r) {
+      // Visual feedback locally
+      if (isCrit || ragnarok) {
+        dmgNumbers.push({ x: e.x, y: e.y - e.r - 15, val: ragnarok ? 'RAGNAROK!' : 'CRIT!', life: 0.8, vy: -40, color: ragnarok ? '#f97316' : '#fbbf24' });
       }
-      hitEnemy(e,finalDmg,dx/dist,dy/dist);
-      callbacks.onAttack?.(enemies.indexOf(e));
-      if(isCrit||ragnarok){
-        dmgNumbers.push({x:e.x,y:e.y-e.r-15,val:ragnarok?'RAGNAROK!':'CRIT!',life:0.8,vy:-40,color:ragnarok?'#f97316':'#fbbf24'});
+      // Send attack to server
+      const idx = serverEnemyIds.indexOf(e.serverId);
+      if (idx >= 0) {
+        callbacks.onAttack?.(idx);
       }
     }
   });
@@ -1659,7 +1994,9 @@ function canMove(x,y,r){
 // ─── ROOM TRANSITION ───
 function checkDoor(){
   const def=dungeonRooms[currentRoom];
-  if(enemies.some(e=>e.hp>0))return;
+  // Check server enemies - all enemies come from server
+  const hasLivingEnemies = Array.from(serverEnemyStates.values()).some(e => e.isAlive);
+  if(hasLivingEnemies)return;
   if(def.doors.includes('bottom')&&player.y>=(ROOM_H-2.5)*TILE){
     const doorX=7*TILE+TILE/2;
     if(Math.abs(player.x-doorX)<TILE*2) goToRoom(currentRoom+1,'top');
@@ -1677,9 +2014,13 @@ function goToRoom(idx,enterFrom){
   setTimeout(()=>{
     currentRoom=idx;
     lootDrops=[];
-    spawnEnemies();
-    if(enterFrom==='top')player.y=1.5*TILE;
-    else player.y=(ROOM_H-1.5)*TILE;
+    serverLootMap.clear(); // Clear stale loot from previous room
+    serverEnemyStates.clear(); // Clear - server will send new enemies for this room
+    serverEnemyIds = [];
+    // Enemies come from server via callbacks.onEnterRoom -> enterRoom reducer
+    // Spawn outside door trigger zones (top: y<=2.5*TILE, bottom: y>=(ROOM_H-2.5)*TILE)
+    if(enterFrom==='top')player.y=3.5*TILE;
+    else player.y=(ROOM_H-3.5)*TILE;
     player.x=7*TILE+TILE/2;
     showRoomLabel(dungeonRooms[idx].name);
     callbacks.onEnterRoom?.(idx);
@@ -1698,7 +2039,10 @@ let projectiles=[];
 // ─── UPDATE ───
 function update(dt){
   if(!gameStarted||gameOver||gameDead)return;
-  
+
+  // Update keyboard input (WASD)
+  updateKeyboardInput();
+
   // Slow-mo effect
   if(slowMoTimer>0){
     slowMoTimer-=dt;
@@ -1765,7 +2109,10 @@ function update(dt){
   // Interpolate other players toward their server positions
   lerpOtherPlayers(dt);
 
-  // enemies
+  // Server-authoritative enemy interpolation
+  updateServerEnemyInterpolation();
+
+  // Local enemies array kept for legacy compatibility but not used for AI
   enemies.forEach(e=>{
     if(e.hp<=0)return;
     if(e.hit>0){e.hit-=dt;e.x+=e.knockX*dt*4;e.y+=e.knockY*dt*4;e.knockX*=0.9;e.knockY*=0.9;if(!canMove(e.x,e.y,e.r)){e.x-=e.knockX*dt*4;e.y-=e.knockY*dt*4;}return;}
@@ -2037,21 +2384,15 @@ function update(dt){
   dmgNumbers.forEach(d=>{d.y+=d.vy*dt;d.life-=dt;});
   dmgNumbers=dmgNumbers.filter(d=>d.life>0);
 
-  // camera
-  const roomPxW=ROOM_W*TILE, roomPxH=ROOM_H*TILE;
-  let targetX=player.x-W/2;
-  let targetY=player.y-H/2;
-  if(roomPxW>W){targetX=Math.max(0,Math.min(targetX,roomPxW-W));}
-  else{targetX=(roomPxW-W)/2;}
-  if(roomPxH>H){targetY=Math.max(0,Math.min(targetY,roomPxH-H));}
-  else{targetY=(roomPxH-H)/2;}
-  camera.x+=(targetX-camera.x)*0.08;
-  camera.y+=(targetY-camera.y)*0.08;
+  // camera - room size equals viewport, so camera stays at origin
+  camera.x = 0;
+  camera.y = 0;
 
   checkDoor();
 
   // boss dead → dungeon complete
-  if(dungeonRooms[currentRoom].isBoss&&enemies.every(e=>e.hp<=0)&&!gameOver){
+  const allEnemiesDead = !Array.from(serverEnemyStates.values()).some(e => e.isAlive);
+  if(dungeonRooms[currentRoom].isBoss&&allEnemiesDead&&!gameOver){
     gameOver=true;sfx('win');haptic('win');
     lifetimeDungeons++;
     dungeonDepth++;
@@ -2100,8 +2441,19 @@ function cdEdge(deg){
 
 // ─── DRAW ───
 function draw(){
+  const dpr=window.devicePixelRatio||1;
+
+  // Clear full canvas with black (letterbox color)
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.fillStyle='#000';
+  ctx.fillRect(0,0,W,H);
+
+  // Apply game transform (scale + center offset)
+  ctx.setTransform(dpr*gameScale,0,0,dpr*gameScale,dpr*gameOffsetX,dpr*gameOffsetY);
+
+  // Fill game area background
   ctx.fillStyle='#1a1a2e';
-  ctx.fillRect(0,0,W+10,H+10);
+  ctx.fillRect(0,0,GAME_WIDTH,GAME_HEIGHT);
   if(!gameStarted)return;
 
   ctx.save();
@@ -2118,7 +2470,7 @@ function draw(){
       ctx.fillStyle='#1a1a2e';ctx.fillRect(px,py,TILE,TILE);
       ctx.fillStyle='#252540';ctx.fillRect(px+1,py+1,TILE-2,TILE-2);
     }else if(t===2){
-      const cleared=enemies.every(e=>e.hp<=0);
+      const cleared = !Array.from(serverEnemyStates.values()).some(e => e.isAlive);
       ctx.fillStyle=cleared?'#065f46':'#7f1d1d';
       ctx.fillRect(px,py,TILE,TILE);
       if(cleared){ctx.fillStyle='#10b981';ctx.fillRect(px+8,py+2,TILE-16,TILE-4);}
@@ -2358,6 +2710,136 @@ function draw(){
     ctx.restore();
   });
 
+  // Server enemies - render with interpolated positions (already scaled to client coords)
+  getServerEnemiesForRender().forEach(e => {
+      if (!e.isAlive) return;
+      ctx.save();
+      ctx.translate(e.x, e.y);
+      if (e.hit > 0) ctx.globalAlpha = 0.5 + Math.sin(e.hit * 40) * 0.5;
+
+      const visuals = getEnemyVisuals(e.enemyType);
+      const r = visuals.r;
+      const color = visuals.color;
+      const eyeColor = visuals.eyeColor;
+
+      // Draw based on enemy type
+      if (e.enemyType === 'boss') {
+        ctx.fillStyle = color;
+        ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#991b1b'; ctx.beginPath(); ctx.arc(0, 0, r - 4, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = color; ctx.beginPath(); ctx.arc(0, 0, r - 8, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#fbbf24';
+        ctx.fillRect(-12, -r - 8, 24, 8);
+      } else if (e.enemyType === 'slime') {
+        ctx.fillStyle = color;
+        ctx.beginPath(); ctx.ellipse(0, 2, r, r * 0.8, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#16a34a';
+        ctx.beginPath(); ctx.ellipse(0, 4, r * 0.7, r * 0.5, 0, 0, Math.PI * 2); ctx.fill();
+      } else if (e.enemyType === 'skeleton') {
+        ctx.fillStyle = color;
+        ctx.fillRect(-r, -r, r * 2, r * 2);
+        ctx.fillStyle = '#94a3b8';
+        ctx.fillRect(-r + 2, -r + 2, r * 2 - 4, r * 2 - 4);
+      } else if (e.enemyType === 'archer') {
+        ctx.fillStyle = color;
+        ctx.beginPath(); ctx.moveTo(0, -r); ctx.lineTo(r, r); ctx.lineTo(-r, r); ctx.closePath(); ctx.fill();
+      } else if (e.enemyType === 'charger') {
+        const shake = (e.aiState === 'telegraph') ? (Math.random() - 0.5) * 4 : 0;
+        ctx.translate(shake, 0);
+        if (e.aiState === 'telegraph') {
+          ctx.fillStyle = 'rgba(239,68,68,' + (0.3 + Math.sin(Date.now() * 0.02) * 0.3) + ')';
+          ctx.beginPath(); ctx.arc(0, 0, r + 8, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.fillStyle = e.aiState === 'charge' ? '#dc2626' : color;
+        ctx.fillRect(-r - 4, -r + 2, r * 2 + 8, r * 2 - 4);
+        ctx.fillStyle = '#fbbf24';
+        ctx.beginPath(); ctx.moveTo(-r + 2, -r + 2); ctx.lineTo(-r, -r - 8); ctx.lineTo(-r + 6, -r + 2); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(r - 6, -r + 2); ctx.lineTo(r, -r - 8); ctx.lineTo(r - 2, -r + 2); ctx.fill();
+        if (e.aiState === 'stunned') {
+          for (let i = 0; i < 3; i++) {
+            const sa = Date.now() * 0.005 + i * 2.1;
+            const sx = Math.cos(sa) * 12, sy = -r - 12 + Math.sin(sa * 2) * 3;
+            ctx.fillStyle = '#fbbf24'; ctx.font = '10px system-ui'; ctx.textAlign = 'center';
+            ctx.fillText('⭐', sx, sy);
+          }
+        }
+      } else if (e.enemyType === 'wolf') {
+        ctx.fillStyle = color;
+        ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#6b7280';
+        ctx.beginPath(); ctx.arc(0, 1, r - 2, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = color;
+        ctx.beginPath(); ctx.moveTo(-6, -r + 1); ctx.lineTo(-4, -r - 5); ctx.lineTo(-2, -r + 1); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(2, -r + 1); ctx.lineTo(4, -r - 5); ctx.lineTo(6, -r + 1); ctx.fill();
+      } else if (e.enemyType === 'bomber') {
+        let scale = 1;
+        if (e.aiState === 'fuse') {
+          const frac = 1 - e.stateTimer / 1.5;
+          scale = 1 + frac * 0.3;
+          const pulseSpeed = 5 + frac * 20;
+          ctx.fillStyle = Math.sin(Date.now() * 0.001 * pulseSpeed) > 0 ? '#ef4444' : color;
+        } else {
+          ctx.fillStyle = color;
+        }
+        ctx.beginPath(); ctx.arc(0, 0, r * scale, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#c2410c';
+        ctx.beginPath(); ctx.arc(0, 1, r * scale - 3, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#854d0e'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(0, -r * scale); ctx.lineTo(2, -r * scale - 6); ctx.stroke();
+        ctx.fillStyle = ['#fbbf24', '#ef4444', '#fff'][Math.floor(Math.random() * 3)];
+        ctx.beginPath(); ctx.arc(2 + Math.random() * 2, -r * scale - 6 + Math.random() * 2, 2, 0, Math.PI * 2); ctx.fill();
+      } else if (e.enemyType === 'necromancer') {
+        ctx.fillStyle = color;
+        ctx.beginPath(); ctx.moveTo(0, -r); ctx.lineTo(r, 0); ctx.lineTo(0, r); ctx.lineTo(-r, 0); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = '#581c87';
+        ctx.beginPath(); ctx.moveTo(-8, -r + 4); ctx.lineTo(0, -r - 8); ctx.lineTo(8, -r + 4); ctx.closePath(); ctx.fill();
+        if (e.aiState === 'summon') {
+          ctx.globalAlpha = 0.4 + Math.sin(Date.now() * 0.01) * 0.2;
+          ctx.fillStyle = '#a855f7';
+          ctx.beginPath(); ctx.arc(0, 0, r + 10, 0, Math.PI * 2); ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+      } else if (e.enemyType === 'shield_knight') {
+        ctx.fillStyle = color;
+        ctx.fillRect(-r, -r, r * 2, r * 2);
+        ctx.fillStyle = '#4b5563';
+        ctx.fillRect(-r + 2, -r + 2, r * 2 - 4, r * 2 - 4);
+        const sa = e.facingAngle || 0;
+        ctx.save();
+        ctx.rotate(sa);
+        ctx.fillStyle = '#3b82f6';
+        ctx.fillRect(r - 4, -8, 6, 16);
+        ctx.fillStyle = '#60a5fa';
+        ctx.fillRect(r - 3, -6, 4, 12);
+        ctx.restore();
+      } else if (e.enemyType === 'bat') {
+        ctx.fillStyle = color;
+        ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+        // Bat wings
+        ctx.beginPath(); ctx.moveTo(-r, 0); ctx.lineTo(-r - 6, -4); ctx.lineTo(-r - 4, 4); ctx.closePath(); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(r, 0); ctx.lineTo(r + 6, -4); ctx.lineTo(r + 4, 4); ctx.closePath(); ctx.fill();
+      } else {
+        // Default circle
+        ctx.fillStyle = color;
+        ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+      }
+
+      // Eyes (facing angle from server)
+      const edx = Math.cos(e.facingAngle), edy = Math.sin(e.facingAngle);
+      ctx.fillStyle = eyeColor;
+      const eex = edx * 3, eey = edy * 3;
+      ctx.beginPath(); ctx.arc(-4 + eex, -3 + eey, 2.5, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(4 + eex, -3 + eey, 2.5, 0, Math.PI * 2); ctx.fill();
+
+      // HP bar
+      if (e.hp < e.maxHp || hasPassive('odinsEye')) {
+        ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(-r, -r - 8, r * 2, 5);
+        ctx.fillStyle = '#ef4444'; ctx.fillRect(-r, -r - 8, r * 2 * (e.hp / e.maxHp), 5);
+      }
+
+      ctx.restore();
+    });
+
   // projectiles
   projectiles.forEach(p=>{
     ctx.fillStyle=p.color;ctx.globalAlpha=0.8;
@@ -2469,11 +2951,12 @@ function draw(){
   });
   ctx.globalAlpha=1;
 
-  // dmg numbers
+  // dmg numbers (and XP gains with + prefix)
   dmgNumbers.forEach(d=>{
     ctx.globalAlpha=d.life/0.8;
     ctx.fillStyle=d.color;ctx.font='bold 16px system-ui';ctx.textAlign='center';
-    ctx.fillText('-'+d.val,d.x,d.y);
+    const prefix = (d as any).prefix || '-';
+    ctx.fillText(prefix+d.val,d.x,d.y);
   });
   ctx.globalAlpha=1;
 
@@ -2482,7 +2965,7 @@ function draw(){
   // room transition overlay
   if(roomTransition>0){
     ctx.fillStyle=`rgba(0,0,0,${roomTransAlpha})`;
-    ctx.fillRect(0,0,W,H);
+    ctx.fillRect(0,0,GAME_WIDTH,GAME_HEIGHT);
   }
 
   drawMinimap();
@@ -2547,6 +3030,129 @@ export function restoreFromServer(data: {
     });
   }
   console.log('[Game] State restored from server — gold:', gold, 'level:', playerLevel, 'depth:', dungeonDepth);
+}
+
+/** Sync player stats from server (HP, XP, level for server-authoritative updates) */
+export function syncPlayerStats(hp: number, maxHp: number, xp?: number, level?: number) {
+  console.log('[Game] syncPlayerStats called:', { hp, maxHp, xp, level, hasPlayer: !!player, gameStarted, gameDead });
+  if (!player) return;
+
+  // Sync XP and level if provided
+  if (xp !== undefined && level !== undefined) {
+    const prevXP = playerXP;
+    const prevLevel = playerLevel;
+    playerXP = xp;
+    playerLevel = level;
+
+    // Show level up feedback
+    if (level > prevLevel) {
+      showPickup('LEVEL UP! Lv ' + level, '#fbbf24');
+      sfx('levelup');
+      haptic('win');
+      // Level up particles
+      for (let i = 0; i < 20; i++) {
+        const a = Math.random() * Math.PI * 2;
+        particles.push({
+          x: player.x,
+          y: player.y,
+          vx: Math.cos(a) * 80,
+          vy: Math.sin(a) * 80,
+          life: 0.8,
+          maxLife: 0.8,
+          r: 4,
+          color: '#fbbf24'
+        });
+      }
+    }
+    // Show XP gain feedback (if XP increased but not level)
+    else if (xp > prevXP) {
+      const gained = xp - prevXP;
+      dmgNumbers.push({
+        x: player.x,
+        y: player.y - player.r - 20,
+        val: gained,
+        life: 1.0,
+        vy: -40,
+        color: '#22c55e',
+        prefix: '+'
+      });
+    }
+    // HUD is updated automatically in the game loop
+  }
+
+  const previousHp = player.hp;
+  console.log('[Game] HP change:', { previousHp, newHp: hp, damageTaken: previousHp - hp });
+  player.maxHp = maxHp;
+  player.hp = hp;
+
+  // Detect damage taken from server
+  if (hp < previousHp && gameStarted && !gameDead) {
+    const damageTaken = previousHp - hp;
+
+    // Visual feedback
+    sfx('hurt');
+    haptic('heavy');
+    shakeTimer = 0.15;
+    shakeIntensity = 5;
+    player.invincible = 0.3; // Brief invincibility flash
+
+    // Damage number
+    dmgNumbers.push({
+      x: player.x,
+      y: player.y - player.r,
+      val: damageTaken,
+      life: 0.8,
+      vy: -60,
+      color: '#ef4444'
+    });
+
+    // Damage particles
+    for (let i = 0; i < 4; i++) {
+      particles.push({
+        x: player.x,
+        y: player.y,
+        vx: (Math.random() - 0.5) * 100,
+        vy: (Math.random() - 0.5) * 100,
+        life: 0.3,
+        maxLife: 0.3,
+        r: 3,
+        color: '#ef4444'
+      });
+    }
+
+    // Death check
+    if (hp <= 0 && !gameDead) {
+      // Check for Yggdrasil Leaf auto-revive
+      if (hasPassive('yggdrasilLeaf') && !yggdrasilUsed) {
+        player.hp = Math.floor(player.maxHp * 0.3);
+        yggdrasilUsed = true;
+        showPickup('🍃 Yggdrasil Leaf — REVIVED!', '#22c55e');
+        sfx('levelup');
+        haptic('win');
+        for (let i = 0; i < 20; i++) {
+          const a = Math.random() * Math.PI * 2;
+          particles.push({
+            x: player.x,
+            y: player.y,
+            vx: Math.cos(a) * 80,
+            vy: Math.sin(a) * 80,
+            life: 0.8,
+            maxLife: 0.8,
+            r: 4,
+            color: '#22c55e'
+          });
+        }
+      } else {
+        player.hp = 0;
+        gameDead = true;
+        sfx('die');
+        haptic('die');
+        setTimeout(() => {
+          document.getElementById('death-screen').style.display = 'flex';
+        }, 500);
+      }
+    }
+  }
 }
 
 export function initGame() {
