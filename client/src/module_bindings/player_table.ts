@@ -13,6 +13,7 @@ import {
 export default __t.row({
   identity: __t.identity().primaryKey(),
   name: __t.string(),
+  playerClass: __t.string().name("player_class"),
   level: __t.u32(),
   xp: __t.u64(),
   hp: __t.i32(),

@@ -27,6 +27,12 @@ export default __t.object("DungeonEnemy", {
   targetY: __t.f32(),
   facingAngle: __t.f32(),
   packId: __t.option(__t.u64()),
+  currentTarget: __t.option(__t.string()),
+  isTaunted: __t.bool(),
+  tauntedBy: __t.option(__t.string()),
+  tauntTimer: __t.f32(),
+  isBoss: __t.bool(),
+  bossPhase: __t.u32(),
 });
 
 

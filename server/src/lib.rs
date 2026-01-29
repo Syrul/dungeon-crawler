@@ -11,6 +11,7 @@ pub struct Player {
     #[primary_key]
     identity: Identity,
     name: String,
+    player_class: String,  // "tank", "healer", or "dps"
     level: u32,
     xp: u64,
     hp: i32,
@@ -59,6 +60,16 @@ pub struct DungeonEnemy {
     pub target_y: f32,
     pub facing_angle: f32,    // For directional attacks
     pub pack_id: Option<u64>, // For wolf pack coordination
+
+    // Threat/aggro system
+    pub current_target: Option<String>,  // Identity hex string of current target player (None = nearest)
+    pub is_taunted: bool,
+    pub taunted_by: Option<String>,      // Identity hex string of taunting player
+    pub taunt_timer: f32,                // Seconds remaining on taunt
+
+    // Boss-specific fields
+    pub is_boss: bool,
+    pub boss_phase: u32,                 // 1, 2, or 3
 }
 
 /// Real-time player position in a dungeon
@@ -74,6 +85,7 @@ pub struct PlayerPosition {
     // Visual appearance data for other players to render
     name: String,
     level: u32,
+    player_class: String,  // "tank", "healer", or "dps"
     // Equipped item icons (emoji strings, empty if not equipped)
     weapon_icon: String,
     armor_icon: String,
@@ -140,6 +152,50 @@ pub struct PlayerMessage {
     pub created_at: u64,
 }
 
+/// Threat table for tank aggro mechanics
+/// Tracks how much threat each player has generated against each enemy
+#[table(name = threat_entry, public)]
+pub struct ThreatEntry {
+    #[primary_key]
+    #[auto_inc]
+    pub id: u64,
+    pub dungeon_id: u64,
+    pub enemy_id: u64,
+    pub player_identity: Identity,
+    pub threat_value: i32,
+}
+
+/// Player ability cooldowns and state
+#[derive(Clone)]
+#[table(name = player_ability_state, public)]
+pub struct PlayerAbilityState {
+    #[primary_key]
+    identity: Identity,
+    dungeon_id: u64,
+    // Cooldowns (in seconds remaining)
+    taunt_cd: f32,
+    knockback_cd: f32,
+    healing_zone_cd: f32,
+    dash_cd: f32,
+    // DPS post-dash bonus timer
+    post_dash_bonus_timer: f32,
+}
+
+/// Active healing zones placed by healers
+#[table(name = active_healing_zone, public)]
+pub struct ActiveHealingZone {
+    #[primary_key]
+    #[auto_inc]
+    pub id: u64,
+    pub dungeon_id: u64,
+    pub owner_identity: Identity,
+    pub x: f32,
+    pub y: f32,
+    pub radius: f32,
+    pub heal_per_tick: i32,
+    pub duration_remaining: f32,
+}
+
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
 const ATTACK_RANGE: f32 = 100.0;
@@ -190,25 +246,179 @@ const ARCHER_SHOOT_RANGE: f32 = 180.0;
 
 // ─── Account Reducers ──────────────────────────────────────────────────────────
 
+/// Get base stats for a player class
+fn get_class_stats(player_class: &str) -> (i32, i32, i32, i32) {
+    // Returns (max_hp, atk, def, speed) with class multipliers applied to base stats
+    // Base stats: HP=100, ATK=10, DEF=5, Speed=5
+    match player_class {
+        "tank" => {
+            // HP×1.3, ATK×0.8, DEF×1.3, Speed×0.8
+            (130, 8, 7, 4)
+        }
+        "healer" => {
+            // HP×1.0, ATK×0.9, DEF×1.0, Speed×1.0
+            (100, 9, 5, 5)
+        }
+        "dps" => {
+            // HP×0.8, ATK×1.2, DEF×0.7, Speed×1.2
+            (80, 12, 4, 6)
+        }
+        _ => {
+            // Default (same as healer for backwards compat)
+            (100, 10, 5, 5)
+        }
+    }
+}
+
+/// Add threat from a player attacking an enemy
+fn add_threat(ctx: &ReducerContext, dungeon_id: u64, enemy_id: u64, player_identity: Identity, amount: i32) {
+    // Find existing threat entry for this player-enemy pair
+    for entry in ctx.db.threat_entry().iter() {
+        if entry.dungeon_id == dungeon_id
+            && entry.enemy_id == enemy_id
+            && entry.player_identity == player_identity
+        {
+            // Update existing entry
+            ctx.db.threat_entry().id().update(ThreatEntry {
+                threat_value: entry.threat_value + amount,
+                ..entry
+            });
+            return;
+        }
+    }
+
+    // Create new entry
+    ctx.db.threat_entry().insert(ThreatEntry {
+        id: 0,
+        dungeon_id,
+        enemy_id,
+        player_identity,
+        threat_value: amount,
+    });
+}
+
+/// Get the highest-threat player for an enemy
+fn get_highest_threat_player(ctx: &ReducerContext, dungeon_id: u64, enemy_id: u64) -> Option<Identity> {
+    let mut highest_threat = 0;
+    let mut highest_player: Option<Identity> = None;
+
+    for entry in ctx.db.threat_entry().iter() {
+        if entry.dungeon_id == dungeon_id && entry.enemy_id == enemy_id {
+            if entry.threat_value > highest_threat {
+                highest_threat = entry.threat_value;
+                highest_player = Some(entry.player_identity);
+            }
+        }
+    }
+
+    highest_player
+}
+
+/// Tick ability cooldowns for all players
+fn tick_ability_cooldowns(ctx: &ReducerContext, dt: f32) {
+    let states: Vec<PlayerAbilityState> = ctx.db.player_ability_state().iter().collect();
+    for state in states {
+        let mut updated = state.clone();
+        updated.taunt_cd = (updated.taunt_cd - dt).max(0.0);
+        updated.knockback_cd = (updated.knockback_cd - dt).max(0.0);
+        updated.healing_zone_cd = (updated.healing_zone_cd - dt).max(0.0);
+        updated.dash_cd = (updated.dash_cd - dt).max(0.0);
+        updated.post_dash_bonus_timer = (updated.post_dash_bonus_timer - dt).max(0.0);
+        ctx.db.player_ability_state().identity().update(updated);
+    }
+}
+
+/// Tick healing zones (heal players inside, decrement duration)
+fn tick_healing_zones(ctx: &ReducerContext, dt: f32) {
+    let zones: Vec<ActiveHealingZone> = ctx.db.active_healing_zone().iter().collect();
+    let positions: Vec<PlayerPosition> = ctx.db.player_position().iter().collect();
+
+    for zone in zones {
+        if zone.duration_remaining <= 0.0 {
+            ctx.db.active_healing_zone().id().delete(zone.id);
+            continue;
+        }
+
+        // Heal players inside the zone
+        for pos in &positions {
+            if pos.dungeon_id != zone.dungeon_id {
+                continue;
+            }
+            let dist = ((pos.x - zone.x).powi(2) + (pos.y - zone.y).powi(2)).sqrt();
+            if dist <= zone.radius {
+                if let Some(player) = ctx.db.player().identity().find(pos.identity) {
+                    let heal = (zone.heal_per_tick as f32 * dt) as i32;
+                    let new_hp = (player.hp + heal).min(player.max_hp);
+                    ctx.db.player().identity().update(Player {
+                        hp: new_hp,
+                        ..player
+                    });
+                }
+            }
+        }
+
+        // Decrement duration
+        ctx.db.active_healing_zone().id().update(ActiveHealingZone {
+            duration_remaining: zone.duration_remaining - dt,
+            ..zone
+        });
+    }
+
+    // Healer passive aura: heal nearby allies (40px radius, 5 HP/sec)
+    for pos in &positions {
+        if pos.player_class != "healer" {
+            continue;
+        }
+        // Heal all other players within 40px
+        for other_pos in &positions {
+            if other_pos.identity == pos.identity || other_pos.dungeon_id != pos.dungeon_id {
+                continue;
+            }
+            let dist = ((other_pos.x - pos.x).powi(2) + (other_pos.y - pos.y).powi(2)).sqrt();
+            if dist <= 40.0 {
+                if let Some(player) = ctx.db.player().identity().find(other_pos.identity) {
+                    let heal = (5.0 * dt) as i32;
+                    let new_hp = (player.hp + heal).min(player.max_hp);
+                    ctx.db.player().identity().update(Player {
+                        hp: new_hp,
+                        ..player
+                    });
+                }
+            }
+        }
+    }
+}
+
 /// Register a new player account
 #[reducer]
-pub fn register_player(ctx: &ReducerContext, name: String) -> Result<(), String> {
+pub fn register_player(ctx: &ReducerContext, name: String, player_class: String) -> Result<(), String> {
     if name.is_empty() {
         return Err("Name must not be empty".into());
     }
     if ctx.db.player().identity().find(ctx.sender).is_some() {
         return Err("Player already registered".into());
     }
+
+    // Validate class
+    let valid_classes = ["tank", "healer", "dps"];
+    let class_lower = player_class.to_lowercase();
+    if !valid_classes.contains(&class_lower.as_str()) {
+        return Err("Invalid class. Must be 'tank', 'healer', or 'dps'".into());
+    }
+
+    let (max_hp, atk, def, speed) = get_class_stats(&class_lower);
+
     ctx.db.player().insert(Player {
         identity: ctx.sender,
         name,
+        player_class: class_lower,
         level: 1,
         xp: 0,
-        hp: 100,
-        max_hp: 100,
-        atk: 10,
-        def: 5,
-        speed: 5,
+        hp: max_hp,
+        max_hp,
+        atk,
+        def,
+        speed,
         gold: 0,
         dungeons_cleared: 0,
     });
@@ -312,6 +522,7 @@ pub fn start_dungeon(ctx: &ReducerContext) -> Result<(), String> {
                     facing_y: 0.0,
                     name: player_for_pos.name.clone(),
                     level: player_for_pos.level,
+                    player_class: player_for_pos.player_class.clone(),
                     weapon_icon: old_pos.weapon_icon,
                     armor_icon: old_pos.armor_icon,
                     accessory_icon: old_pos.accessory_icon,
@@ -326,6 +537,7 @@ pub fn start_dungeon(ctx: &ReducerContext) -> Result<(), String> {
                     facing_y: 0.0,
                     name: player_for_pos.name.clone(),
                     level: player_for_pos.level,
+                    player_class: player_for_pos.player_class.clone(),
                     weapon_icon: String::new(),
                     armor_icon: String::new(),
                     accessory_icon: String::new(),
@@ -343,7 +555,7 @@ pub fn start_dungeon(ctx: &ReducerContext) -> Result<(), String> {
 
     let seed = ctx.timestamp.to_duration_since_unix_epoch()
         .unwrap_or_default().as_micros() as u64;
-    let total_rooms = 5 + player.dungeons_cleared;
+    let total_rooms = 4; // Fixed 4-room structure: Basic, Tactical, Complex, Raid
     let depth = player.dungeons_cleared + 1;
 
     let dungeon = ctx.db.active_dungeon().insert(ActiveDungeon {
@@ -381,6 +593,7 @@ pub fn start_dungeon(ctx: &ReducerContext) -> Result<(), String> {
             facing_y: 0.0,
             name: player.name.clone(),
             level: player.level,
+            player_class: player.player_class.clone(),
             weapon_icon: old_pos.weapon_icon,
             armor_icon: old_pos.armor_icon,
             accessory_icon: old_pos.accessory_icon,
@@ -395,6 +608,7 @@ pub fn start_dungeon(ctx: &ReducerContext) -> Result<(), String> {
             facing_y: 0.0,
             name: player.name.clone(),
             level: player.level,
+            player_class: player.player_class.clone(),
             weapon_icon: String::new(),
             armor_icon: String::new(),
             accessory_icon: String::new(),
@@ -448,6 +662,7 @@ pub fn enter_room(ctx: &ReducerContext, dungeon_id: u64, room_index: u32) -> Res
                 facing_y: pos.facing_y,
                 name: pos.name.clone(),
                 level: pos.level,
+                player_class: pos.player_class.clone(),
                 weapon_icon: pos.weapon_icon.clone(),
                 armor_icon: pos.armor_icon.clone(),
                 accessory_icon: pos.accessory_icon.clone(),
@@ -520,7 +735,7 @@ pub fn update_position(
     accessory_icon: String,
 ) -> Result<(), String> {
     if let Some(pos) = ctx.db.player_position().identity().find(ctx.sender) {
-        // Preserve name/level from existing position, update equipment
+        // Preserve name/level/class from existing position, update equipment
         ctx.db.player_position().identity().update(PlayerPosition {
             identity: ctx.sender,
             dungeon_id,
@@ -530,6 +745,7 @@ pub fn update_position(
             facing_y,
             name: pos.name.clone(),
             level: pos.level,
+            player_class: pos.player_class.clone(),
             weapon_icon,
             armor_icon,
             accessory_icon,
@@ -547,6 +763,7 @@ pub fn update_position(
             facing_y,
             name: player.name.clone(),
             level: player.level,
+            player_class: player.player_class.clone(),
             weapon_icon,
             armor_icon,
             accessory_icon,
@@ -577,8 +794,37 @@ pub fn attack(ctx: &ReducerContext, dungeon_id: u64, target_enemy_id: u64) -> Re
         return Err("Target out of range".into());
     }
 
-    let damage = player.atk.max(1);
+    // Calculate damage with class bonuses
+    let mut damage = player.atk.max(1);
+
+    // DPS backstab bonus: +50% damage when hitting from behind (>120° from enemy facing)
+    if player.player_class == "dps" {
+        let attack_angle = (pos.y - enemy.y).atan2(pos.x - enemy.x);
+        let mut angle_diff = (attack_angle - enemy.facing_angle).abs();
+        if angle_diff > std::f32::consts::PI {
+            angle_diff = 2.0 * std::f32::consts::PI - angle_diff;
+        }
+        // Backstab: attack from behind (angle_diff > 2π/3 ≈ 120°)
+        if angle_diff > std::f32::consts::PI * 2.0 / 3.0 {
+            damage = (damage as f32 * 1.5) as i32;
+        }
+    }
+
+    // Check for DPS post-dash bonus: +25% damage for 0.5s after dash
+    if player.player_class == "dps" {
+        if let Some(ability_state) = ctx.db.player_ability_state().identity().find(ctx.sender) {
+            if ability_state.post_dash_bonus_timer > 0.0 {
+                damage = (damage as f32 * 1.25) as i32;
+            }
+        }
+    }
+
     let new_hp = enemy.hp - damage;
+
+    // Generate threat: tanks generate 2x threat, others 1x
+    let threat_mult = if player.player_class == "tank" { 2 } else { 1 };
+    let threat_generated = damage * threat_mult;
+    add_threat(ctx, dungeon_id, target_enemy_id, ctx.sender, threat_generated);
 
     if new_hp <= 0 {
         // Enemy dies — capture loot info before moving
@@ -631,6 +877,8 @@ pub fn use_dash(
     dir_x: f32,
     dir_y: f32,
 ) -> Result<(), String> {
+    let player = ctx.db.player().identity().find(ctx.sender)
+        .ok_or("Player not found")?;
     let pos = ctx.db.player_position().identity().find(ctx.sender)
         .ok_or("Position not found")?;
 
@@ -647,12 +895,185 @@ pub fn use_dash(
         facing_y: dir_y,
         name: pos.name.clone(),
         level: pos.level,
+        player_class: pos.player_class.clone(),
         weapon_icon: pos.weapon_icon.clone(),
         armor_icon: pos.armor_icon.clone(),
         accessory_icon: pos.accessory_icon.clone(),
     });
 
+    // DPS gets post-dash damage bonus (0.5s window for +25% damage)
+    if player.player_class == "dps" {
+        ensure_ability_state(ctx, dungeon_id);
+        if let Some(state) = ctx.db.player_ability_state().identity().find(ctx.sender) {
+            ctx.db.player_ability_state().identity().update(PlayerAbilityState {
+                post_dash_bonus_timer: 0.5,
+                ..state
+            });
+        }
+    }
+
     log::info!("Player dashed in dungeon {}", dungeon_id);
+    Ok(())
+}
+
+/// Ensure a player has an ability state record
+fn ensure_ability_state(ctx: &ReducerContext, dungeon_id: u64) {
+    if ctx.db.player_ability_state().identity().find(ctx.sender).is_none() {
+        ctx.db.player_ability_state().insert(PlayerAbilityState {
+            identity: ctx.sender,
+            dungeon_id,
+            taunt_cd: 0.0,
+            knockback_cd: 0.0,
+            healing_zone_cd: 0.0,
+            dash_cd: 0.0,
+            post_dash_bonus_timer: 0.0,
+        });
+    }
+}
+
+/// Tank ability: Taunt a single enemy to force it to attack the tank for 4 seconds
+#[reducer]
+pub fn use_taunt(ctx: &ReducerContext, dungeon_id: u64, target_enemy_id: u64) -> Result<(), String> {
+    let player = ctx.db.player().identity().find(ctx.sender)
+        .ok_or("Player not found")?;
+
+    if player.player_class != "tank" {
+        return Err("Only tanks can use Taunt".into());
+    }
+
+    ensure_ability_state(ctx, dungeon_id);
+    let state = ctx.db.player_ability_state().identity().find(ctx.sender)
+        .ok_or("Ability state not found")?;
+
+    if state.taunt_cd > 0.0 {
+        return Err("Taunt is on cooldown".into());
+    }
+
+    let enemy = ctx.db.dungeon_enemy().id().find(target_enemy_id)
+        .ok_or("Enemy not found")?;
+
+    if enemy.dungeon_id != dungeon_id || !enemy.is_alive {
+        return Err("Invalid target".into());
+    }
+
+    // Apply taunt effect (4 second duration)
+    ctx.db.dungeon_enemy().id().update(DungeonEnemy {
+        is_taunted: true,
+        taunted_by: Some(ctx.sender.to_string()),
+        taunt_timer: 4.0,
+        current_target: Some(ctx.sender.to_string()),
+        ..enemy
+    });
+
+    // Set cooldown (8 seconds)
+    ctx.db.player_ability_state().identity().update(PlayerAbilityState {
+        taunt_cd: 8.0,
+        ..state
+    });
+
+    // Generate bonus threat
+    add_threat(ctx, dungeon_id, target_enemy_id, ctx.sender, 100);
+
+    log::info!("Tank taunted enemy {} in dungeon {}", target_enemy_id, dungeon_id);
+    Ok(())
+}
+
+/// Tank ability: Knockback all enemies within 60px, pushing them back 100px
+#[reducer]
+pub fn use_knockback(ctx: &ReducerContext, dungeon_id: u64) -> Result<(), String> {
+    let player = ctx.db.player().identity().find(ctx.sender)
+        .ok_or("Player not found")?;
+    let pos = ctx.db.player_position().identity().find(ctx.sender)
+        .ok_or("Position not found")?;
+
+    if player.player_class != "tank" {
+        return Err("Only tanks can use Knockback".into());
+    }
+
+    ensure_ability_state(ctx, dungeon_id);
+    let state = ctx.db.player_ability_state().identity().find(ctx.sender)
+        .ok_or("Ability state not found")?;
+
+    if state.knockback_cd > 0.0 {
+        return Err("Knockback is on cooldown".into());
+    }
+
+    // Push all enemies within 60px back by 100px
+    let knockback_radius = 60.0;
+    let knockback_distance = 100.0;
+
+    let enemies: Vec<DungeonEnemy> = ctx.db.dungeon_enemy().iter()
+        .filter(|e| e.dungeon_id == dungeon_id && e.is_alive)
+        .collect();
+
+    for enemy in enemies {
+        let dx = enemy.x - pos.x;
+        let dy = enemy.y - pos.y;
+        let dist = (dx * dx + dy * dy).sqrt();
+
+        if dist <= knockback_radius && dist > 0.1 {
+            let nx = dx / dist;
+            let ny = dy / dist;
+            let new_x = (enemy.x + nx * knockback_distance).clamp(TILE_SIZE, ROOM_W - TILE_SIZE);
+            let new_y = (enemy.y + ny * knockback_distance).clamp(TILE_SIZE, ROOM_H - TILE_SIZE);
+
+            ctx.db.dungeon_enemy().id().update(DungeonEnemy {
+                x: new_x,
+                y: new_y,
+                ai_state: "stunned".to_string(),
+                state_timer: 0.5, // Stunned briefly
+                ..enemy
+            });
+        }
+    }
+
+    // Set cooldown (12 seconds)
+    ctx.db.player_ability_state().identity().update(PlayerAbilityState {
+        knockback_cd: 12.0,
+        ..state
+    });
+
+    log::info!("Tank used knockback in dungeon {}", dungeon_id);
+    Ok(())
+}
+
+/// Healer ability: Place a healing zone at position (60px radius, heals for 8 seconds)
+#[reducer]
+pub fn place_healing_zone(ctx: &ReducerContext, dungeon_id: u64, x: f32, y: f32) -> Result<(), String> {
+    let player = ctx.db.player().identity().find(ctx.sender)
+        .ok_or("Player not found")?;
+
+    if player.player_class != "healer" {
+        return Err("Only healers can place healing zones".into());
+    }
+
+    ensure_ability_state(ctx, dungeon_id);
+    let state = ctx.db.player_ability_state().identity().find(ctx.sender)
+        .ok_or("Ability state not found")?;
+
+    if state.healing_zone_cd > 0.0 {
+        return Err("Healing zone is on cooldown".into());
+    }
+
+    // Create healing zone (60px radius, 5 HP/sec heal, 8 second duration)
+    ctx.db.active_healing_zone().insert(ActiveHealingZone {
+        id: 0,
+        dungeon_id,
+        owner_identity: ctx.sender,
+        x,
+        y,
+        radius: 60.0,
+        heal_per_tick: 5,
+        duration_remaining: 8.0,
+    });
+
+    // Set cooldown (15 seconds)
+    ctx.db.player_ability_state().identity().update(PlayerAbilityState {
+        healing_zone_cd: 15.0,
+        ..state
+    });
+
+    log::info!("Healer placed healing zone in dungeon {} at ({}, {})", dungeon_id, x, y);
     Ok(())
 }
 
@@ -852,39 +1273,85 @@ pub fn tick_enemies(ctx: &ReducerContext, _arg: EnemyTickSchedule) {
     // Collect all enemies for pack coordination
     let all_enemies: Vec<DungeonEnemy> = ctx.db.dungeon_enemy().iter().collect();
 
+    // Tick ability cooldowns for all players
+    tick_ability_cooldowns(ctx, dt);
+
+    // Tick healing zones
+    tick_healing_zones(ctx, dt);
+
     // Process each alive enemy
     for enemy in ctx.db.dungeon_enemy().iter() {
         if !enemy.is_alive {
             continue;
         }
 
-        // Find nearest player in same dungeon
-        let target = positions.iter()
-            .filter(|p| p.dungeon_id == enemy.dungeon_id)
-            .min_by(|a, b| {
-                let da = (a.x - enemy.x).powi(2) + (a.y - enemy.y).powi(2);
-                let db = (b.x - enemy.x).powi(2) + (b.y - enemy.y).powi(2);
-                da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
-            });
+        // Clone for modification
+        let mut e = enemy.clone();
 
-        let Some(target) = target else { continue };
+        // Update taunt timer
+        if e.is_taunted && e.taunt_timer > 0.0 {
+            e.taunt_timer -= dt;
+            if e.taunt_timer <= 0.0 {
+                e.is_taunted = false;
+                e.taunted_by = None;
+            }
+        }
 
-        let dx = target.x - enemy.x;
-        let dy = target.y - enemy.y;
+        // Determine target based on: taunt > threat > nearest
+        let target = if e.is_taunted {
+            // Force target the taunting player
+            e.taunted_by.as_ref()
+                .and_then(|hex| positions.iter().find(|p| p.identity.to_string() == *hex))
+        } else if let Some(threat_target) = get_highest_threat_player(ctx, e.dungeon_id, e.id) {
+            // Target highest threat player
+            positions.iter().find(|p| p.identity == threat_target)
+        } else {
+            None
+        };
+
+        // Fall back to nearest player if no threat/taunt target
+        let target = target.or_else(|| {
+            positions.iter()
+                .filter(|p| p.dungeon_id == e.dungeon_id)
+                .min_by(|a, b| {
+                    let da = (a.x - e.x).powi(2) + (a.y - e.y).powi(2);
+                    let db = (b.x - e.x).powi(2) + (b.y - e.y).powi(2);
+                    da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+                })
+        });
+
+        let Some(target) = target else {
+            ctx.db.dungeon_enemy().id().update(e);
+            continue;
+        };
+
+        // Store current target identity for rendering
+        e.current_target = Some(target.identity.to_string());
+
+        // Tank slow aura: enemies within 50px of any tank move at 70% speed
+        let tank_nearby = positions.iter().any(|p| {
+            if p.dungeon_id != e.dungeon_id || p.player_class != "tank" {
+                return false;
+            }
+            let dist = ((p.x - e.x).powi(2) + (p.y - e.y).powi(2)).sqrt();
+            dist <= 50.0
+        });
+        let speed_mult = if tank_nearby { 0.7 } else { 1.0 };
+
+        let dx = target.x - e.x;
+        let dy = target.y - e.y;
         let dist = (dx * dx + dy * dy).sqrt();
         let (nx, ny) = if dist > 0.1 { (dx / dist, dy / dist) } else { (0.0, 0.0) };
 
-        // Clone enemy for modification
-        let mut e = enemy.clone();
-
         match e.enemy_type.as_str() {
-            "charger" => ai_charger(&mut e, target, dx, dy, dist, nx, ny, dt, ctx),
-            "wolf" => ai_wolf(&mut e, target, dx, dy, dist, dt, &all_enemies, ctx),
+            "charger" => ai_charger(&mut e, target, dx, dy, dist, nx, ny, dt * speed_mult, ctx),
+            "wolf" => ai_wolf(&mut e, target, dx, dy, dist, dt * speed_mult, &all_enemies, ctx),
             "necromancer" => ai_necromancer(&mut e, target, dx, dy, dist, nx, ny, dt),
-            "bomber" => ai_bomber(&mut e, target, dx, dy, dist, nx, ny, dt, ctx),
-            "shield_knight" => ai_shield_knight(&mut e, target, dx, dy, dist, nx, ny, dt, ctx),
+            "bomber" => ai_bomber(&mut e, target, dx, dy, dist, nx, ny, dt * speed_mult, ctx),
+            "shield_knight" => ai_shield_knight(&mut e, target, dx, dy, dist, nx, ny, dt * speed_mult, ctx),
             "archer" => ai_archer(&mut e, target, dx, dy, dist, nx, ny, dt, ctx),
-            _ => ai_basic_melee(&mut e, target, dx, dy, dist, nx, ny, dt, ctx),
+            "raid_boss" => ai_raid_boss(&mut e, target, dx, dy, dist, nx, ny, dt, ctx, &positions),
+            _ => ai_basic_melee(&mut e, target, dx, dy, dist, nx, ny, dt * speed_mult, ctx),
         }
 
         // Clamp position to room bounds
@@ -1271,6 +1738,154 @@ fn ai_archer(e: &mut DungeonEnemy, target: &PlayerPosition, _dx: f32, _dy: f32, 
     }
 }
 
+/// Raid Boss AI: 3-phase boss fight
+/// Phase 1 (100-60% HP): Attack highest threat, tank check
+/// Phase 2 (60-30% HP): Teleport center, spawn adds every 6s
+/// Phase 3 (<30% HP): Enrage (+50% ATK), raid-wide AoE every 4s
+fn ai_raid_boss(e: &mut DungeonEnemy, target: &PlayerPosition, _dx: f32, _dy: f32, dist: f32, nx: f32, ny: f32, dt: f32, ctx: &ReducerContext, all_positions: &[PlayerPosition]) {
+    let speed = 40.0 * dt * 60.0; // Slow but menacing
+
+    e.facing_angle = ny.atan2(nx);
+    e.state_timer -= dt;
+
+    // Calculate current phase based on HP percentage
+    let hp_pct = e.hp as f32 / e.max_hp as f32;
+    let new_phase = if hp_pct > 0.6 { 1 } else if hp_pct > 0.3 { 2 } else { 3 };
+
+    // Phase transition
+    if new_phase != e.boss_phase {
+        e.boss_phase = new_phase;
+        e.state_timer = 0.5; // Brief pause during transition
+        match new_phase {
+            2 => {
+                // Teleport to center
+                e.x = 270.0;
+                e.y = 360.0;
+                e.ai_state = "phase2".to_string();
+            }
+            3 => {
+                // Enrage
+                e.atk = (e.atk as f32 * 1.5) as i32;
+                e.ai_state = "enrage".to_string();
+            }
+            _ => {}
+        }
+    }
+
+    match e.boss_phase {
+        1 => {
+            // Phase 1: Chase and attack highest threat
+            if dist <= ENEMY_ATTACK_RANGE + 15.0 {
+                if e.state_timer <= 0.0 {
+                    e.state_timer = 1.0;
+                    e.ai_state = "attack".to_string();
+                    // Deal damage to target
+                    if let Some(player) = ctx.db.player().identity().find(target.identity) {
+                        let damage = (e.atk - player.def / 2).max(1);
+                        ctx.db.player().identity().update(Player {
+                            hp: (player.hp - damage).max(0),
+                            ..player
+                        });
+                    }
+                }
+            } else {
+                e.ai_state = "chase".to_string();
+                e.x += nx * speed;
+                e.y += ny * speed;
+            }
+        }
+        2 => {
+            // Phase 2: Spawn adds every 6 seconds, chase between spawns
+            if e.state_timer <= 0.0 {
+                e.state_timer = 6.0;
+                e.ai_state = "summon".to_string();
+                // Spawn 2 skeleton adds around the boss
+                for i in 0..2 {
+                    let angle = (i as f32) * std::f32::consts::PI;
+                    let (add_hp, add_atk) = get_enemy_stats("skeleton", 1);
+                    ctx.db.dungeon_enemy().insert(DungeonEnemy {
+                        id: 0,
+                        dungeon_id: e.dungeon_id,
+                        room_index: e.room_index,
+                        enemy_type: "skeleton".to_string(),
+                        x: e.x + angle.cos() * 50.0,
+                        y: e.y + angle.sin() * 50.0,
+                        hp: add_hp,
+                        max_hp: add_hp,
+                        atk: add_atk,
+                        is_alive: true,
+                        ai_state: "chase".to_string(),
+                        state_timer: 0.0,
+                        target_x: e.x,
+                        target_y: e.y,
+                        facing_angle: angle,
+                        pack_id: None,
+                        current_target: None,
+                        is_taunted: false,
+                        taunted_by: None,
+                        taunt_timer: 0.0,
+                        is_boss: false,
+                        boss_phase: 0,
+                    });
+                }
+            } else {
+                // Chase between summons
+                if dist > ENEMY_ATTACK_RANGE + 10.0 {
+                    e.x += nx * speed * 0.7;
+                    e.y += ny * speed * 0.7;
+                } else if e.ai_state != "summon" {
+                    e.ai_state = "attack".to_string();
+                    // Attack
+                    if let Some(player) = ctx.db.player().identity().find(target.identity) {
+                        let damage = (e.atk - player.def / 2).max(1);
+                        ctx.db.player().identity().update(Player {
+                            hp: (player.hp - damage).max(0),
+                            ..player
+                        });
+                    }
+                }
+            }
+        }
+        3 => {
+            // Phase 3: Enraged, raid-wide AoE every 4 seconds
+            if e.state_timer <= 0.0 {
+                e.state_timer = 4.0;
+                e.ai_state = "aoe".to_string();
+                // Deal AoE damage to ALL players in dungeon
+                for pos in all_positions.iter() {
+                    if pos.dungeon_id != e.dungeon_id {
+                        continue;
+                    }
+                    if let Some(player) = ctx.db.player().identity().find(pos.identity) {
+                        let aoe_damage = (e.atk / 3).max(5); // Reduced damage but hits everyone
+                        ctx.db.player().identity().update(Player {
+                            hp: (player.hp - aoe_damage).max(0),
+                            ..player
+                        });
+                    }
+                }
+            } else {
+                // Aggressive chase and attack
+                e.ai_state = "enrage".to_string();
+                if dist > ENEMY_ATTACK_RANGE {
+                    e.x += nx * speed * 1.5; // Faster when enraged
+                    e.y += ny * speed * 1.5;
+                } else {
+                    // Fast attacks
+                    if let Some(player) = ctx.db.player().identity().find(target.identity) {
+                        let damage = (e.atk - player.def / 2).max(1);
+                        ctx.db.player().identity().update(Player {
+                            hp: (player.hp - damage).max(0),
+                            ..player
+                        });
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 // ─── Helper Functions ──────────────────────────────────────────────────────────
 
 /// Schedule the next enemy AI tick (50ms = 20Hz for smooth multiplayer sync)
@@ -1283,24 +1898,41 @@ fn schedule_enemy_tick(ctx: &ReducerContext) {
 
 /// Spawn enemies for a given room
 fn spawn_enemies_for_room(ctx: &ReducerContext, dungeon_id: u64, room_index: u32, depth: u32, seed: u64) {
-    // Simple deterministic spawn based on seed + room
     let room_seed = seed.wrapping_add(room_index as u64 * 1337);
-    let enemy_count = 3; // Fixed count for debugging
-
-    // DEBUG: Only spawn simple melee enemies for now
-    let enemy_types = ["slime", "skeleton", "bat"];
     let mut pack_id_counter: u64 = seed.wrapping_add(room_index as u64);
 
+    // Fixed 4-room structure:
+    // Room 0: Basic (Training) - slimes, skeletons
+    // Room 1: Tactical (Chamber) - archers, chargers + mini-boss (Shield Knight)
+    // Room 2: Complex (Gauntlet) - necromancers, bombers, wolf packs
+    // Room 3: Raid (Arena) - raid boss only (requires 2+ players)
+    let enemy_types: Vec<&str> = match room_index {
+        0 => vec!["slime", "slime", "skeleton", "bat"],
+        1 => vec!["archer", "charger", "skeleton", "shield_knight"], // mini-boss: shield_knight
+        2 => vec!["wolf", "wolf", "necromancer", "bomber"],
+        3 => vec!["raid_boss"], // Raid boss room
+        _ => vec!["slime", "skeleton"],
+    };
+
+    let enemy_count = enemy_types.len();
+
     for i in 0..enemy_count {
-        let s = room_seed.wrapping_add(i as u64 * 7919);
-        let et = enemy_types[i % enemy_types.len()]; // Cycle through simple types
+        let et = enemy_types[i];
         let (hp, atk) = get_enemy_stats(et, depth);
 
-        // Spread enemies around the room
-        let angle = (i as f32 / enemy_count as f32) * std::f32::consts::TAU;
-        let radius = 200.0 + (s % 100) as f32;
-        let x = 400.0 + angle.cos() * radius;
-        let y = 300.0 + angle.sin() * radius;
+        // Spread enemies around the room (raid boss centered)
+        let angle = if et == "raid_boss" {
+            0.0
+        } else {
+            (i as f32 / enemy_count as f32) * std::f32::consts::TAU
+        };
+        let radius = if et == "raid_boss" {
+            0.0 // Center of room
+        } else {
+            150.0 + (room_seed.wrapping_add(i as u64) % 80) as f32
+        };
+        let x = 270.0 + angle.cos() * radius; // Room center
+        let y = 360.0 + angle.sin() * radius;
 
         // Initial AI state depends on enemy type
         let (initial_state, pack_id) = match et {
@@ -1316,6 +1948,7 @@ fn spawn_enemies_for_room(ctx: &ReducerContext, dungeon_id: u64, room_index: u32
             _ => ("chase".to_string(), None), // skeleton, slime, bat
         };
 
+        let is_boss = et == "boss" || et == "raid_boss";
         ctx.db.dungeon_enemy().insert(DungeonEnemy {
             id: 0, // auto_inc
             dungeon_id,
@@ -1333,6 +1966,14 @@ fn spawn_enemies_for_room(ctx: &ReducerContext, dungeon_id: u64, room_index: u32
             target_y: y,
             facing_angle: angle,
             pack_id,
+            // Threat system fields
+            current_target: None,
+            is_taunted: false,
+            taunted_by: None,
+            taunt_timer: 0.0,
+            // Boss fields
+            is_boss,
+            boss_phase: if is_boss { 1 } else { 0 },
         });
     }
 }
@@ -1351,6 +1992,7 @@ fn get_enemy_stats(enemy_type: &str, depth: u32) -> (i32, i32) {
         "shield_knight" => (70, 12),
         "archer" => (35, 10),
         "boss" => (300, 18),
+        "raid_boss" => (800, 25), // 3-phase raid boss
         _ => (20, 5),
     };
     ((base_hp as f32 * scale) as i32, (base_atk as f32 * scale) as i32)
@@ -1398,17 +2040,66 @@ fn drop_loot_for_dead_enemy(
     atk: i32,
     max_hp: i32,
 ) {
-    let rarity = match enemy_type {
-        "necromancer" => "rare",
-        "charger" => "uncommon",
-        _ => "common",
+    // Determine rarity based on enemy type
+    // Boss/raid_boss: 5% legendary, 25% epic, 50% rare
+    // Shield_knight (mini-boss): 10% epic, 40% rare
+    // Others: standard rates
+    let is_boss = enemy_type == "boss" || enemy_type == "raid_boss";
+    let is_miniboss = enemy_type == "shield_knight";
+
+    let rarity = if is_boss {
+        let roll: f32 = (ctx.timestamp.to_duration_since_unix_epoch().unwrap_or_default().as_micros() % 100) as f32 / 100.0;
+        if roll < 0.05 { "legendary" }
+        else if roll < 0.30 { "epic" }
+        else if roll < 0.80 { "rare" }
+        else { "uncommon" }
+    } else if is_miniboss {
+        let roll: f32 = (ctx.timestamp.to_duration_since_unix_epoch().unwrap_or_default().as_micros() % 100) as f32 / 100.0;
+        if roll < 0.10 { "epic" }
+        else if roll < 0.50 { "rare" }
+        else { "uncommon" }
+    } else {
+        // Regular enemies: 1% legendary for class gear
+        let roll: f32 = (ctx.timestamp.to_duration_since_unix_epoch().unwrap_or_default().as_micros() % 100) as f32 / 100.0;
+        if roll < 0.01 { "legendary" }
+        else {
+            match enemy_type {
+                "necromancer" => "rare",
+                "charger" => "uncommon",
+                _ => "common",
+            }
+        }
+    };
+
+    // For legendary drops, pick a random participant's class for class-specific gear
+    let class_tag = if rarity == "legendary" {
+        // Get all participants in this dungeon and pick random class
+        let participants: Vec<Identity> = ctx.db.dungeon_participant().iter()
+            .filter(|p| p.dungeon_id == dungeon_id)
+            .map(|p| p.player_identity)
+            .collect();
+
+        if !participants.is_empty() {
+            let idx = (ctx.timestamp.to_duration_since_unix_epoch().unwrap_or_default().as_micros() as usize) % participants.len();
+            if let Some(player) = ctx.db.player().identity().find(participants[idx]) {
+                format!(",\"classReq\":\"{}\"", player.player_class)
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        }
+    } else {
+        String::new()
     };
 
     let item_json = format!(
-        r#"{{"type":"drop","source":"{}","atk_bonus":{},"def_bonus":{}}}"#,
+        r#"{{"type":"drop","source":"{}","atk_bonus":{},"def_bonus":{},"rarity":"{}"{}}}"#,
         enemy_type,
         atk / 2,
         max_hp / 10,
+        rarity,
+        class_tag,
     );
 
     ctx.db.loot_drop().insert(LootDrop {

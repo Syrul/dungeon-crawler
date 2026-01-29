@@ -1,10 +1,15 @@
 // game.ts — Dungeon Crawler game logic
 // Server-authoritative multiplayer with client interpolation
 
-import type { GameMode, GameCallbacks } from './types';
+import type { GameMode, GameCallbacks, PlayerClass } from './types';
+import { CLASS_STATS } from './types';
 
 let gameMode: GameMode = 'online'; // Always online - server-authoritative
 let callbacks: GameCallbacks = {};
+
+// Player class selection state
+let playerClass: PlayerClass = 'healer'; // Default class
+let classSelected: boolean = false; // Whether class has been selected this session
 
 export function setGameMode(mode: GameMode) {
   gameMode = mode;
@@ -145,6 +150,23 @@ function sfx(type){
       o.type='square';o.frequency.setValueAtTime(300,t);o.frequency.exponentialRampToValueAtTime(150,t+0.08);
       g.gain.setValueAtTime(0.25,t);g.gain.exponentialRampToValueAtTime(0.01,t+0.1);
       o.start(t);o.stop(t+0.1);break;
+    case'taunt':
+      o.type='square';o.frequency.setValueAtTime(150,t);o.frequency.exponentialRampToValueAtTime(300,t+0.15);
+      g.gain.setValueAtTime(0.3,t);g.gain.exponentialRampToValueAtTime(0.01,t+0.2);
+      o.start(t);o.stop(t+0.2);break;
+    case'knockback':
+      o.type='sawtooth';o.frequency.setValueAtTime(100,t);o.frequency.exponentialRampToValueAtTime(40,t+0.25);
+      g.gain.setValueAtTime(0.35,t);g.gain.exponentialRampToValueAtTime(0.01,t+0.3);
+      o.start(t);o.stop(t+0.3);break;
+    case'heal':
+      o.type='sine';o.frequency.setValueAtTime(400,t);o.frequency.exponentialRampToValueAtTime(800,t+0.2);
+      g.gain.setValueAtTime(0.2,t);g.gain.exponentialRampToValueAtTime(0.01,t+0.3);
+      o.start(t);o.stop(t+0.3);
+      {const oh=audioCtx.createOscillator(),gh=audioCtx.createGain();
+      oh.connect(gh);gh.connect(audioCtx.destination);
+      oh.type='sine';oh.frequency.setValueAtTime(600,t+0.1);oh.frequency.exponentialRampToValueAtTime(1000,t+0.25);
+      gh.gain.setValueAtTime(0.15,t+0.1);gh.gain.exponentialRampToValueAtTime(0.01,t+0.35);
+      oh.start(t+0.1);oh.stop(t+0.35);}break;
   }
 }
 const ATTACK_RANGE = 50;
@@ -269,12 +291,35 @@ const LEGENDARY_ITEMS=[
   {name:'Gungnir Tip',icon:'🗡️',slot:'weapon',base:{ATK:22},passive:'First hit on each enemy deals 2x damage',passiveId:'gungnirTip'},
   {name:'Bifrost Ring',icon:'💍',slot:'accessory',base:{Speed:8,DEF:5},passive:'Teleport short distance on dash instead of slide',passiveId:'bifrostRing'},
   {name:'Surtr\'s Ember',icon:'🔥',slot:'accessory',base:{ATK:15},passive:'Attacks burn enemies for 5 dmg/sec for 3s',passiveId:'surtrEmber'},
-  {name:'Freya\'s Blessing',icon:'📿',slot:'accessory',base:{HP:25,DEF:8},passive:'Regenerate 1% max HP per second',passiveId:'freyaBlessing'}
+  {name:'Freya\'s Blessing',icon:'📿',slot:'accessory',base:{HP:25,DEF:8},passive:'Regenerate 1% max HP per second',passiveId:'freyaBlessing'},
+  // Class-specific legendaries
+  // Tank legendaries
+  {name:'Taunt Gauntlets',icon:'🧤',slot:'armor',base:{DEF:20,HP:30},passive:'Taunt also applies 30% slow to target',passiveId:'tauntGauntlets',classReq:'tank'},
+  {name:'Aegis of Defiance',icon:'🔰',slot:'accessory',base:{DEF:15,HP:25},passive:'Slow aura radius increased to 80px',passiveId:'aegisDefiance',classReq:'tank'},
+  // Healer legendaries
+  {name:'Healing Vestments',icon:'🥋',slot:'armor',base:{HP:40,DEF:10},passive:'Passive heal aura range +50%, heal +50%',passiveId:'healingVestments',classReq:'healer'},
+  {name:'Staff of Renewal',icon:'✨',slot:'weapon',base:{ATK:12,HP:20},passive:'Healing zone duration +4s, radius +20px',passiveId:'staffRenewal',classReq:'healer'},
+  // DPS legendaries
+  {name:"Assassin's Cloak",icon:'🦇',slot:'armor',base:{ATK:15,Speed:10},passive:'Backstab damage +75% (total +125%)',passiveId:'assassinCloak',classReq:'dps'},
+  {name:'Shadowstep Boots',icon:'👢',slot:'accessory',base:{Speed:15,ATK:8},passive:'Dash CD -0.5s, post-dash bonus +1s',passiveId:'shadowstepBoots',classReq:'dps'}
 ];
 
-function generateLegendary(slot,ilvl){
-  const candidates=LEGENDARY_ITEMS.filter(l=>l.slot===slot);
-  if(candidates.length===0)return generateGear(slot,ilvl); // fallback
+function generateLegendary(slot,ilvl,classReq?:string){
+  // Filter by slot, and optionally by class requirement
+  let candidates=LEGENDARY_ITEMS.filter(l=>l.slot===slot);
+
+  // If classReq is specified, prefer class-specific items (50% chance) or any item
+  if(classReq && Math.random()<0.5){
+    const classItems=candidates.filter(l=>l.classReq===classReq);
+    if(classItems.length>0) candidates=classItems;
+  }
+
+  // Filter out class-specific items that don't match player's class
+  if(!classReq){
+    candidates=candidates.filter(l=>!l.classReq || l.classReq===playerClass);
+  }
+
+  if(candidates.length===0)return generateGear(slot,ilvl,false); // fallback
   const leg=candidates[Math.floor(Math.random()*candidates.length)];
   const stats={};
   for(const[k,v]of Object.entries(leg.base)){
@@ -282,7 +327,7 @@ function generateLegendary(slot,ilvl){
   }
   const affixes=rollAffixes(RARITIES[4],ilvl);
   return{slot,name:leg.name,icon:leg.icon,rarity:'legendary',rarityColor:'#f97316',stats,affixes,
-    passive:leg.passive,passiveId:leg.passiveId,ilvl,cardSlot:null,isNew:true,
+    passive:leg.passive,passiveId:leg.passiveId,classReq:leg.classReq,ilvl,cardSlot:null,isNew:true,
     id:Math.random().toString(36).substr(2,9)};
 }
 
@@ -479,18 +524,30 @@ function totalSpeed(){
 }
 
 // ─── PLAYER VISUAL PROGRESSION ───
+// Now uses class-based colors with level-based intensity/effects
 function getPlayerColor(){
-  if(playerLevel>=10) return {main:'#fbbf24',mid:'#d97706',light:'#fde68a'}; // gold
-  if(playerLevel>=7) return {main:'#a855f7',mid:'#7e22ce',light:'#c4b5fd'}; // purple
-  if(playerLevel>=4) return {main:'#22c55e',mid:'#16a34a',light:'#86efac'}; // green
-  return {main:'#3b82f6',mid:'#2563eb',light:'#93c5fd'}; // blue
+  // Base color from class
+  const baseColors = getClassColorInternal(playerClass);
+  // High level players get a golden glow effect (handled separately in rendering)
+  return baseColors;
 }
 
-function getPlayerColorForLevel(level: number) {
-  if(level>=10) return {main:'#fbbf24',mid:'#d97706',light:'#fde68a'}; // gold
-  if(level>=7) return {main:'#a855f7',mid:'#7e22ce',light:'#c4b5fd'}; // purple
-  if(level>=4) return {main:'#22c55e',mid:'#16a34a',light:'#86efac'}; // green
-  return {main:'#3b82f6',mid:'#2563eb',light:'#93c5fd'}; // blue
+function getClassColorInternal(pClass: PlayerClass): { main: string; mid: string; light: string } {
+  switch (pClass) {
+    case 'tank':
+      return { main: '#3b82f6', mid: '#2563eb', light: '#93c5fd' }; // blue
+    case 'healer':
+      return { main: '#22c55e', mid: '#16a34a', light: '#86efac' }; // green
+    case 'dps':
+      return { main: '#ef4444', mid: '#dc2626', light: '#fca5a5' }; // red
+    default:
+      return { main: '#3b82f6', mid: '#2563eb', light: '#93c5fd' };
+  }
+}
+
+function getPlayerColorForLevel(level: number, pClass: PlayerClass = 'healer') {
+  // Use class color as base
+  return getClassColorInternal(pClass);
 }
 
 function getPlayerRadiusForLevel(level: number) {
@@ -584,6 +641,7 @@ interface OtherPlayer {
   // Visual appearance
   name: string;
   level: number;
+  playerClass: PlayerClass;
   // Equipment icons
   weaponIcon: string;
   armorIcon: string;
@@ -657,13 +715,15 @@ function getEnemyVisuals(enemyType: string): { color: string, r: number, eyeColo
     case 'necromancer': return { color: '#7e22ce', r: 14, eyeColor: '#a855f7' };
     case 'shield_knight': return { color: '#6b7280', r: 15, eyeColor: '#fff' };
     case 'boss': return { color: '#ef4444', r: 28, eyeColor: '#fbbf24' };
+    case 'raid_boss': return { color: '#dc2626', r: 40, eyeColor: '#fbbf24' };
     case 'bat': return { color: '#374151', r: 10, eyeColor: '#ef4444' };
     default: return { color: '#ffffff', r: 12, eyeColor: '#000' };
   }
 }
 
-export function updateOtherPlayer(id: string, x: number, y: number, fx: number, fy: number, name: string = 'Player', level: number = 1, weaponIcon: string = '', armorIcon: string = '', accessoryIcon: string = '') {
+export function updateOtherPlayer(id: string, x: number, y: number, fx: number, fy: number, name: string = 'Player', level: number = 1, pClass: string = 'healer', weaponIcon: string = '', armorIcon: string = '', accessoryIcon: string = '') {
   const existing = otherPlayers.get(id);
+  const validClass = (pClass === 'tank' || pClass === 'healer' || pClass === 'dps') ? pClass as PlayerClass : 'healer';
   if (existing) {
     // Move current rendered position to where we are now, set new target
     existing.tx = x; existing.ty = y;
@@ -671,11 +731,12 @@ export function updateOtherPlayer(id: string, x: number, y: number, fx: number, 
     existing.lastUpdate = performance.now();
     existing.name = name;
     existing.level = level;
+    existing.playerClass = validClass;
     existing.weaponIcon = weaponIcon;
     existing.armorIcon = armorIcon;
     existing.accessoryIcon = accessoryIcon;
   } else {
-    otherPlayers.set(id, {x, y, facingX: fx, facingY: fy, tx: x, ty: y, tfx: fx, tfy: fy, lastUpdate: performance.now(), name, level, weaponIcon, armorIcon, accessoryIcon});
+    otherPlayers.set(id, {x, y, facingX: fx, facingY: fy, tx: x, ty: y, tfx: fx, tfy: fy, lastUpdate: performance.now(), name, level, playerClass: validClass, weaponIcon, armorIcon, accessoryIcon});
   }
 }
 export function removeOtherPlayer(id: string) {
@@ -1049,57 +1110,42 @@ function addDoor(r,side){
 let dungeonRooms=[];
 
 function generateDungeon(depth){
-  const numRooms=5+Math.floor(Math.random()*4);
-  const defs=[];
-  for(let i=0;i<numRooms;i++){
-    const isBoss=i===numRooms-1;
-    const isFirst=i===0;
-    const doors=[];
-    if(!isFirst)doors.push('top');
-    if(!isBoss)doors.push('bottom');
-
-    let enList=[];
-    // Build enemy pool based on depth
-    let pool=['slime'];
-    if(depth>=1) pool.push('wolf');
-    if(depth>=2) pool.push('archer');
-    if(depth>=3) pool.push('charger','bomber','skeleton');
-    if(depth>=5) pool.push('necromancer','shield_knight');
-
-    if(isBoss){
-      enList.push({type:'boss',x:7,y:8});
-      // Boss rooms spawn 1-2 minions
-      const minionCount=1+Math.floor(Math.random()*2);
-      for(let m=0;m<minionCount;m++){
-        const mt=pool[Math.floor(Math.random()*pool.length)];
-        if(mt==='wolf'){
-          enList.push({type:'pack',count:3,x:3+m*8,y:12});
-        }else{
-          enList.push({type:mt,x:3+m*8,y:12});
-        }
-      }
-    }else{
-      const numEnemies=2+Math.floor(Math.random()*3)+Math.floor(depth*0.5);
-      let spawned=0;
-      while(spawned<numEnemies){
-        const type=pool[Math.floor(Math.random()*pool.length)];
-        const ex=2+Math.floor(Math.random()*11);
-        const ey=3+Math.floor(Math.random()*14);
-        if(type==='wolf'){
-          const count=3+Math.floor(Math.random()*2); // 3-4
-          enList.push({type:'pack',count,x:ex,y:ey});
-          spawned+=count;
-        }else{
-          enList.push({type,x:ex,y:ey});
-          spawned++;
-        }
-      }
+  // Fixed 4-room structure:
+  // Room 0: Basic (Training) - slimes, skeletons
+  // Room 1: Tactical (Chamber) - archers, chargers + mini-boss (Shield Knight)
+  // Room 2: Complex (Gauntlet) - necromancers, bombers, wolf packs
+  // Room 3: Raid (Arena) - raid boss only (requires 2+ players)
+  const roomDefs = [
+    {
+      name: '⚔️ Training Grounds',
+      enemies: [{type:'slime',x:5,y:8},{type:'slime',x:9,y:8},{type:'skeleton',x:7,y:12},{type:'bat',x:7,y:5}],
+      doors: ['bottom'],
+      isBoss: false,
+      isRaid: false
+    },
+    {
+      name: '🏛️ Tactical Chamber',
+      enemies: [{type:'archer',x:3,y:6},{type:'charger',x:11,y:6},{type:'skeleton',x:7,y:10},{type:'shield_knight',x:7,y:14}],
+      doors: ['top','bottom'],
+      isBoss: false,
+      isRaid: false
+    },
+    {
+      name: '💀 The Gauntlet',
+      enemies: [{type:'wolf',x:4,y:8},{type:'wolf',x:10,y:8},{type:'necromancer',x:7,y:6},{type:'bomber',x:7,y:14}],
+      doors: ['top','bottom'],
+      isBoss: false,
+      isRaid: false
+    },
+    {
+      name: '🔥 RAID ARENA 🔥',
+      enemies: [{type:'raid_boss',x:7,y:10}],
+      doors: ['top'],
+      isBoss: true,
+      isRaid: true
     }
-
-    const roomNames=isBoss?'🔥 BOSS ARENA 🔥':['Dark Hall','Ancient Chamber','Dusty Corridor','Treasure Room','Cursed Vault','Forgotten Crypt','Spider Den','Mossy Cave'][i%8];
-    defs.push({name:roomNames,enemies:enList,doors,isBoss});
-  }
-  return defs;
+  ];
+  return roomDefs;
 }
 
 // ─── STATE ───
@@ -1107,7 +1153,7 @@ let canvas,ctx,W,H,minimapCtx;
 let gameStarted=false, gameOver=false, gameDead=false, inHub=false;
 let player,camera,rooms,currentRoom,particles,dmgNumbers,enemies;
 let joystickActive=false,joystickTouchId=null,joyVec={x:0,y:0};
-let abilities={attack:{cd:0,maxCd:ATTACK_CD},dash:{cd:0,maxCd:DASH_CD}};
+let abilities={attack:{cd:0,maxCd:ATTACK_CD},dash:{cd:0,maxCd:DASH_CD},ability1:{cd:0,maxCd:8},ability2:{cd:0,maxCd:12}};
 let shakeTimer=0,shakeIntensity=0;
 let roomTransition=0,roomTransAlpha=0;
 let lastTime=0;
@@ -1228,6 +1274,10 @@ function init(){
   document.getElementById('btn-attack').addEventListener('click',doAttack);
   document.getElementById('btn-dash').addEventListener('touchstart',e=>{e.preventDefault();doDash();});
   document.getElementById('btn-dash').addEventListener('click',doDash);
+  document.getElementById('btn-ability1').addEventListener('touchstart',e=>{e.preventDefault();doAbility1();});
+  document.getElementById('btn-ability1').addEventListener('click',doAbility1);
+  document.getElementById('btn-ability2').addEventListener('touchstart',e=>{e.preventDefault();doAbility2();});
+  document.getElementById('btn-ability2').addEventListener('click',doAbility2);
 
   // Emote button - long press for wheel, tap for quick chat
   setupEmoteButton();
@@ -1268,12 +1318,14 @@ function resize(){
 
 function showHub(){
   inHub=true;gameStarted=false;gameOver=false;gameDead=false;
-  
-  document.getElementById('hub-hero-level').textContent='Level '+playerLevel;
+
+  // Display class icon and level
+  const classInfo = CLASS_STATS[playerClass];
+  document.getElementById('hub-hero-level').textContent=`${classInfo.icon} Level ${playerLevel} ${playerClass.toUpperCase()}`;
   document.getElementById('hub-atk').textContent=totalAtk();
   document.getElementById('hub-def').textContent=totalDef();
   document.getElementById('hub-hp').textContent=totalMaxHp();
-  
+
   let info=`💰 <span>${gold}</span> Gold &nbsp;·&nbsp; Dungeon Depth: <span>${dungeonDepth}</span>`;
   document.getElementById('hub-info').innerHTML=info;
   
@@ -1319,7 +1371,7 @@ function resetGame(){
   serverEnemyStates.clear(); // Clear server enemy state - will be populated from server
   serverEnemyIds = [];
   serverLootMap.clear(); // Clear stale loot from previous dungeon
-  abilities.attack.cd=0;abilities.dash.cd=0;
+  abilities.attack.cd=0;abilities.dash.cd=0;abilities.ability1.cd=0;abilities.ability2.cd=0;
   gameOver=false;gameDead=false;
   slowMoTimer=0;
   yggdrasilUsed=false;
@@ -1793,9 +1845,11 @@ function setupKeyboard() {
       keysPressed.add(key);
       e.preventDefault();
     }
-    // Space for attack, Shift for dash
+    // Space for attack, Shift for dash, Q/E for class abilities
     if (key === ' ' || key === 'spacebar') { doAttack(); e.preventDefault(); }
     if (key === 'shift') { doDash(); e.preventDefault(); }
+    if (key === 'q') { doAbility1(); e.preventDefault(); }
+    if (key === 'e') { doAbility2(); e.preventDefault(); }
     // Enter to open chat (desktop)
     if (key === 'enter' && gameStarted && !gameOver && !gameDead && !emoteWheelOpen) {
       openChatInput();
@@ -1882,13 +1936,66 @@ function doDash(){
   if(abilities.dash.cd>0||gameOver||gameDead||!gameStarted)return;
   if(joyVec.x===0&&joyVec.y===0){player.dashDir={...player.facing};}
   else{const m=Math.sqrt(joyVec.x*joyVec.x+joyVec.y*joyVec.y);player.dashDir={x:joyVec.x/m,y:joyVec.y/m};}
-  abilities.dash.cd=hasPassive('lokiTrinket')?DASH_CD*0.5:DASH_CD;
+  // DPS has faster dash cooldown (1.5s vs 3s)
+  let dashCd = playerClass === 'dps' ? 1.5 : DASH_CD;
+  abilities.dash.cd=hasPassive('lokiTrinket')?dashCd*0.5:dashCd;
   player.dashing=true;
   sfx('dash');haptic('light');
   callbacks.onDash?.(player.dashDir.x,player.dashDir.y);
   player.dashTimer=DASH_DUR;
   player.invincible=DASH_DUR+0.1;
   for(let i=0;i<6;i++){particles.push({x:player.x,y:player.y,vx:(Math.random()-0.5)*60,vy:(Math.random()-0.5)*60,life:0.4,maxLife:0.4,r:4,color:'#60a5fa'});}
+}
+
+// Class ability 1: Tank=Taunt, Healer=Healing Zone, DPS=none
+function doAbility1(){
+  if(abilities.ability1.cd>0||gameOver||gameDead||!gameStarted)return;
+  if(playerClass==='tank'){
+    // Taunt: find nearest enemy and taunt it
+    let nearest=null,minD=Infinity;
+    enemies.forEach((e,i)=>{if(e.hp>0){const d=Math.hypot(e.x-player.x,e.y-player.y);if(d<minD){minD=d;nearest={e,i};}}});
+    if(nearest&&minD<200){
+      abilities.ability1.cd=8;
+      sfx('taunt');haptic('medium');
+      callbacks.onTaunt?.(nearest.i);
+      // Visual: blue pulse on enemy
+      for(let i=0;i<8;i++){particles.push({x:nearest.e.x,y:nearest.e.y,vx:Math.cos(i*Math.PI/4)*40,vy:Math.sin(i*Math.PI/4)*40,life:0.5,maxLife:0.5,r:6,color:'#3b82f6'});}
+      dmgNumbers.push({x:nearest.e.x,y:nearest.e.y-nearest.e.r-10,val:'TAUNT',life:1,vy:-40,color:'#3b82f6'});
+    }
+  }else if(playerClass==='healer'){
+    // Healing Zone: place at player position
+    abilities.ability1.cd=15;
+    sfx('heal');haptic('medium');
+    callbacks.onPlaceHealingZone?.(player.x,player.y);
+    // Visual: green expanding ring
+    for(let i=0;i<12;i++){particles.push({x:player.x,y:player.y,vx:Math.cos(i*Math.PI/6)*80,vy:Math.sin(i*Math.PI/6)*80,life:0.8,maxLife:0.8,r:8,color:'#22c55e'});}
+  }
+}
+
+// Class ability 2: Tank=Knockback, Healer=none, DPS=none
+function doAbility2(){
+  if(abilities.ability2.cd>0||gameOver||gameDead||!gameStarted)return;
+  if(playerClass==='tank'){
+    // Knockback: push all enemies in 60px radius
+    abilities.ability2.cd=12;
+    sfx('knockback');haptic('heavy');
+    callbacks.onKnockback?.();
+    let hitCount=0;
+    enemies.forEach(e=>{
+      if(e.hp>0){
+        const d=Math.hypot(e.x-player.x,e.y-player.y);
+        if(d<80){
+          hitCount++;
+          const nx=(e.x-player.x)/d,ny=(e.y-player.y)/d;
+          e.knockX=nx*150;e.knockY=ny*150;
+          for(let i=0;i<4;i++){particles.push({x:e.x,y:e.y,vx:nx*60+(Math.random()-0.5)*40,vy:ny*60+(Math.random()-0.5)*40,life:0.4,maxLife:0.4,r:4,color:'#60a5fa'});}
+        }
+      }
+    });
+    // Shockwave visual
+    for(let i=0;i<16;i++){particles.push({x:player.x,y:player.y,vx:Math.cos(i*Math.PI/8)*100,vy:Math.sin(i*Math.PI/8)*100,life:0.5,maxLife:0.5,r:5,color:'#3b82f6'});}
+    if(hitCount>0)dmgNumbers.push({x:player.x,y:player.y-30,val:'KNOCKBACK',life:1,vy:-40,color:'#60a5fa'});
+  }
 }
 
 function hitEnemy(e,dmg,nx,ny){
@@ -2112,6 +2219,8 @@ function update(dt){
   
   if(abilities.attack.cd>0)abilities.attack.cd=Math.max(0,abilities.attack.cd-dt);
   if(abilities.dash.cd>0)abilities.dash.cd=Math.max(0,abilities.dash.cd-dt);
+  if(abilities.ability1.cd>0)abilities.ability1.cd=Math.max(0,abilities.ability1.cd-dt);
+  if(abilities.ability2.cd>0)abilities.ability2.cd=Math.max(0,abilities.ability2.cd-dt);
   if(player.invincible>0)player.invincible-=dt;
   if(player.attackAnim>0)player.attackAnim-=dt;
   if(shakeTimer>0)shakeTimer-=dt;
@@ -2477,6 +2586,8 @@ function update(dt){
 
   updateAbilityUI('btn-attack',abilities.attack);
   updateAbilityUI('btn-dash',abilities.dash);
+  updateAbilityUI('btn-ability1',abilities.ability1);
+  updateAbilityUI('btn-ability2',abilities.ability2);
 }
 
 function updateAbilityUI(id,ab){
@@ -2977,13 +3088,13 @@ function draw(){
   
   // Other players (co-op)
   otherPlayers.forEach((op, id) => {
-    const opColor = getPlayerColorForLevel(op.level);
+    const opColor = getPlayerColorForLevel(op.level, op.playerClass);
     const opRadius = getPlayerRadiusForLevel(op.level);
     ctx.save();
     ctx.translate(op.x, op.y);
     // Shadow
     ctx.fillStyle='rgba(0,0,0,0.3)';ctx.beginPath();ctx.ellipse(0,opRadius-2,opRadius,opRadius*0.4,0,0,Math.PI*2);ctx.fill();
-    // Body (colored by level)
+    // Body (colored by class)
     ctx.fillStyle=opColor.main;ctx.beginPath();ctx.arc(0,0,opRadius,0,Math.PI*2);ctx.fill();
     ctx.fillStyle=opColor.mid;ctx.beginPath();ctx.arc(0,2,opRadius-3,0,Math.PI*2);ctx.fill();
     ctx.fillStyle=opColor.main;ctx.beginPath();ctx.arc(0,-1,opRadius-5,0,Math.PI*2);ctx.fill();
@@ -3160,12 +3271,20 @@ export function restoreFromServer(data: {
   level?: number;
   xp?: number;
   dungeonDepth?: number;
+  playerClass?: string;
   inventory?: Array<{ itemDataJson: string; equippedSlot?: string | null; cardDataJson?: string | null }>;
 }) {
   if (data.gold != null) gold = data.gold;
   if (data.level != null) playerLevel = data.level;
   if (data.xp != null) playerXP = data.xp;
   if (data.dungeonDepth != null) dungeonDepth = data.dungeonDepth;
+  if (data.playerClass) {
+    if (data.playerClass === 'tank' || data.playerClass === 'healer' || data.playerClass === 'dps') {
+      playerClass = data.playerClass as PlayerClass;
+      classSelected = true;
+      setupClassAbilityButtons();
+    }
+  }
   if (data.inventory) {
     backpack = [];
     equipped = { weapon: null, armor: null, accessory: null };
@@ -3462,4 +3581,78 @@ export function receiveMessage(
 export function initGame() {
   exposeGlobals();
   init();
+}
+
+// ─── PLAYER CLASS EXPORTS ───
+export function getPlayerClass(): PlayerClass {
+  return playerClass;
+}
+
+export function setPlayerClass(pClass: PlayerClass) {
+  playerClass = pClass;
+  classSelected = true;
+  setupClassAbilityButtons();
+  console.log('[Game] Player class set to:', pClass);
+}
+
+function setupClassAbilityButtons() {
+  const btn1 = document.getElementById('btn-ability1');
+  const btn2 = document.getElementById('btn-ability2');
+  if (!btn1 || !btn2) return;
+
+  // Reset classes
+  btn1.className = 'ability-btn';
+  btn2.className = 'ability-btn';
+
+  if (playerClass === 'tank') {
+    btn1.style.display = 'flex';
+    btn1.classList.add('tank');
+    btn1.querySelector('span').textContent = '🎯'; // Taunt
+    btn2.style.display = 'flex';
+    btn2.classList.add('tank');
+    btn2.querySelector('span').textContent = '💥'; // Knockback
+    abilities.ability1.maxCd = 8;
+    abilities.ability2.maxCd = 12;
+  } else if (playerClass === 'healer') {
+    btn1.style.display = 'flex';
+    btn1.classList.add('healer');
+    btn1.querySelector('span').textContent = '💚'; // Healing Zone
+    btn2.style.display = 'none'; // Healer only has 1 active ability
+    abilities.ability1.maxCd = 15;
+  } else if (playerClass === 'dps') {
+    // DPS has passive abilities (faster dash, backstab) - no active ability buttons
+    btn1.style.display = 'none';
+    btn2.style.display = 'none';
+  } else {
+    btn1.style.display = 'none';
+    btn2.style.display = 'none';
+  }
+}
+
+export function isClassSelected(): boolean {
+  return classSelected;
+}
+
+// Called from main.ts when restoring from server
+export function restorePlayerClass(pClass: string) {
+  if (pClass === 'tank' || pClass === 'healer' || pClass === 'dps') {
+    playerClass = pClass as PlayerClass;
+    classSelected = true;
+    setupClassAbilityButtons();
+    console.log('[Game] Restored player class from server:', pClass);
+  }
+}
+
+// Get class-specific color for player rendering
+export function getClassColor(pClass: PlayerClass): { main: string; mid: string; light: string } {
+  switch (pClass) {
+    case 'tank':
+      return { main: '#3b82f6', mid: '#2563eb', light: '#93c5fd' }; // blue
+    case 'healer':
+      return { main: '#22c55e', mid: '#16a34a', light: '#86efac' }; // green
+    case 'dps':
+      return { main: '#ef4444', mid: '#dc2626', light: '#fca5a5' }; // red
+    default:
+      return { main: '#3b82f6', mid: '#2563eb', light: '#93c5fd' };
+  }
 }

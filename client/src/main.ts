@@ -1,8 +1,10 @@
 // main.ts — Entry point
 // Server-authoritative multiplayer with client interpolation
 
-import { initGame, setGameMode, setCallbacks, restoreFromServer, updateOtherPlayer, removeOtherPlayer, syncEnemyFromServer, removeServerEnemy, addServerLoot, removeServerLoot, syncRoom, getCurrentRoom, initServerEnemies, getServerEnemyIds, syncPlayerStats, clientToServerX, clientToServerY, getEquippedIcons, receiveMessage } from './game';
+import { initGame, setGameMode, setCallbacks, restoreFromServer, updateOtherPlayer, removeOtherPlayer, syncEnemyFromServer, removeServerEnemy, addServerLoot, removeServerLoot, syncRoom, getCurrentRoom, initServerEnemies, getServerEnemyIds, syncPlayerStats, clientToServerX, clientToServerY, getEquippedIcons, receiveMessage, setPlayerClass, getPlayerClass } from './game';
 import { spacetimeClient } from './spacetime';
+import type { PlayerClass } from './types';
+import { CLASS_STATS } from './types';
 
 const statusDot = document.getElementById('connection-status');
 
@@ -13,6 +15,74 @@ function setStatusDot(connected: boolean) {
 }
 
 let activeDungeonId: bigint | null = null;
+
+// Class selection UI
+function showClassSelection() {
+  const overlay = document.createElement('div');
+  overlay.id = 'class-selection-overlay';
+  overlay.style.cssText = `
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 10, 20, 0.95);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    padding: 20px;
+  `;
+
+  overlay.innerHTML = `
+    <h1 style="color: #fbbf24; font-size: 28px; margin-bottom: 10px; text-shadow: 0 0 20px #fbbf24;">Choose Your Class</h1>
+    <p style="color: #94a3b8; margin-bottom: 30px; text-align: center;">Select a class for your hero. This choice is permanent!</p>
+    <div style="display: flex; gap: 15px; flex-wrap: wrap; justify-content: center; max-width: 600px;">
+      ${(['tank', 'healer', 'dps'] as PlayerClass[]).map(cls => {
+        const stats = CLASS_STATS[cls];
+        return `
+          <div class="class-card" data-class="${cls}" style="
+            background: linear-gradient(135deg, ${stats.color}22, ${stats.color}11);
+            border: 2px solid ${stats.color};
+            border-radius: 12px;
+            padding: 20px;
+            width: 160px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: center;
+          ">
+            <div style="font-size: 40px; margin-bottom: 10px;">${stats.icon}</div>
+            <div style="color: ${stats.color}; font-size: 18px; font-weight: bold; text-transform: uppercase;">${cls}</div>
+            <div style="color: #94a3b8; font-size: 12px; margin-top: 8px; line-height: 1.4;">${stats.description}</div>
+            <div style="color: #64748b; font-size: 11px; margin-top: 10px;">
+              HP: ${Math.round(stats.hp * 100)}% | ATK: ${Math.round(stats.atk * 100)}%<br>
+              DEF: ${Math.round(stats.def * 100)}% | SPD: ${Math.round(stats.speed * 100)}%
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  // Add hover effects
+  overlay.querySelectorAll('.class-card').forEach(card => {
+    card.addEventListener('mouseenter', () => {
+      (card as HTMLElement).style.transform = 'scale(1.05)';
+      (card as HTMLElement).style.boxShadow = '0 0 30px ' + CLASS_STATS[(card as HTMLElement).dataset.class as PlayerClass].color + '44';
+    });
+    card.addEventListener('mouseleave', () => {
+      (card as HTMLElement).style.transform = 'scale(1)';
+      (card as HTMLElement).style.boxShadow = 'none';
+    });
+    card.addEventListener('click', () => {
+      const selectedClass = (card as HTMLElement).dataset.class as PlayerClass;
+      setPlayerClass(selectedClass);
+      spacetimeClient.registerPlayer('Hero', selectedClass);
+      overlay.remove();
+      console.log('[Main] Registered player with class:', selectedClass);
+    });
+  });
+}
 
 async function main() {
   // Try connecting to SpacetimeDB
@@ -28,10 +98,10 @@ async function main() {
     // for all existing rows on initial subscription. Instead, we poll after startDungeon.
 
     // Co-op: listen for other player positions
-    spacetimeClient.onPlayerPositionChange((identity, dungeonId, x, y, fx, fy, name, level, weaponIcon, armorIcon, accessoryIcon) => {
+    spacetimeClient.onPlayerPositionChange((identity, dungeonId, x, y, fx, fy, name, level, playerClass, weaponIcon, armorIcon, accessoryIcon) => {
       // Use string comparison for bigint
       if (activeDungeonId != null && dungeonId.toString() === activeDungeonId.toString()) {
-        updateOtherPlayer(identity, x, y, fx, fy, name, level, weaponIcon, armorIcon, accessoryIcon);
+        updateOtherPlayer(identity, x, y, fx, fy, name, level, playerClass, weaponIcon, armorIcon, accessoryIcon);
       }
     }, (identity) => {
       removeOtherPlayer(identity);
@@ -127,7 +197,7 @@ async function main() {
             console.log('[Main] Initialized', serverEnemies.length, 'server enemies for room', d.currentRoom);
             // Load existing players already in the dungeon
             const existingPlayers = spacetimeClient.getOtherPlayersInDungeon(activeDungeonId);
-            existingPlayers.forEach(p => updateOtherPlayer(p.identity, p.x, p.y, p.fx, p.fy, p.name, p.level, p.weaponIcon, p.armorIcon, p.accessoryIcon));
+            existingPlayers.forEach(p => updateOtherPlayer(p.identity, p.x, p.y, p.fx, p.fy, p.name, p.level, p.playerClass, p.weaponIcon, p.armorIcon, p.accessoryIcon));
             console.log('[Main] Loaded', existingPlayers.length, 'existing players in dungeon');
             clearInterval(poll);
           }
@@ -190,6 +260,24 @@ async function main() {
           spacetimeClient.sendChat(activeDungeonId, text);
         }
       },
+      onTaunt: (targetEnemyId) => {
+        if (activeDungeonId != null) {
+          const ids = getServerEnemyIds();
+          if (targetEnemyId >= 0 && targetEnemyId < ids.length) {
+            spacetimeClient.useTaunt(activeDungeonId, ids[targetEnemyId]);
+          }
+        }
+      },
+      onKnockback: () => {
+        if (activeDungeonId != null) {
+          spacetimeClient.useKnockback(activeDungeonId);
+        }
+      },
+      onPlaceHealingZone: (x, y) => {
+        if (activeDungeonId != null) {
+          spacetimeClient.placeHealingZone(activeDungeonId, clientToServerX(x), clientToServerY(y));
+        }
+      },
     });
 
     // Listen for connection state changes
@@ -201,32 +289,35 @@ async function main() {
       }
     });
 
-    // Auto-register then login
-    try {
-      spacetimeClient.registerPlayer('Hero');
-    } catch (e) {
-      // Already registered, that's fine
-    }
-    try {
-      spacetimeClient.login();
-    } catch (e) {
-      console.warn('[Main] Login failed:', e);
-    }
-
-    // Restore state from server after a short delay (let subscriptions populate)
+    // Check if player already exists
+    let playerExists = false;
     setTimeout(() => {
       const playerData = spacetimeClient.getPlayerData();
       if (playerData) {
+        playerExists = true;
         const inventory = spacetimeClient.getInventoryItems();
         restoreFromServer({
           gold: playerData.gold,
           level: playerData.level,
           xp: playerData.xp,
           dungeonDepth: playerData.dungeonsCleared + 1,
+          playerClass: playerData.playerClass,
           inventory,
         });
+        console.log('[Main] Player exists, restored from server');
+      } else {
+        // New player - show class selection
+        console.log('[Main] New player, showing class selection');
+        showClassSelection();
       }
     }, 1000);
+
+    // Try login (will work if player exists)
+    try {
+      spacetimeClient.login();
+    } catch (e) {
+      console.warn('[Main] Login failed:', e);
+    }
   } else {
     console.error('[Main] Failed to connect to SpacetimeDB server');
     setStatusDot(false);

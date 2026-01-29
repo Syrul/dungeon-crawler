@@ -10,19 +10,13 @@ import {
   type Infer as __Infer,
 } from "spacetimedb";
 
-export default __t.object("PlayerPosition", {
-  identity: __t.identity(),
-  dungeonId: __t.u64(),
+export default __t.row({
+  id: __t.u64().primaryKey(),
+  dungeonId: __t.u64().name("dungeon_id"),
+  ownerIdentity: __t.identity().name("owner_identity"),
   x: __t.f32(),
   y: __t.f32(),
-  facingX: __t.f32(),
-  facingY: __t.f32(),
-  name: __t.string(),
-  level: __t.u32(),
-  playerClass: __t.string(),
-  weaponIcon: __t.string(),
-  armorIcon: __t.string(),
-  accessoryIcon: __t.string(),
+  radius: __t.f32(),
+  healPerTick: __t.i32().name("heal_per_tick"),
+  durationRemaining: __t.f32().name("duration_remaining"),
 });
-
-

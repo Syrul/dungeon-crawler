@@ -10,19 +10,8 @@ import {
   type Infer as __Infer,
 } from "spacetimedb";
 
-export default __t.object("PlayerPosition", {
-  identity: __t.identity(),
+export default {
   dungeonId: __t.u64(),
   x: __t.f32(),
   y: __t.f32(),
-  facingX: __t.f32(),
-  facingY: __t.f32(),
-  name: __t.string(),
-  level: __t.u32(),
-  playerClass: __t.string(),
-  weaponIcon: __t.string(),
-  armorIcon: __t.string(),
-  accessoryIcon: __t.string(),
-});
-
-
+};

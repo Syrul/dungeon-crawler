@@ -3,7 +3,7 @@ import { DbConnection, DbConnectionBuilder } from './module_bindings';
 import type { ConnectionState } from './types';
 
 const SPACETIMEDB_URI = 'wss://maincloud.spacetimedb.com';
-const DB_NAME = 'dungeon-crawler-coop';
+const DB_NAME = 'dungeon-crawler-dev';
 // Token key includes URI to avoid using localhost token on maincloud
 const TOKEN_KEY = `spacetimedb_token_${DB_NAME}`;
 
@@ -108,6 +108,9 @@ class SpacetimeClient {
           'SELECT * FROM inventory_item',
           'SELECT * FROM dungeon_participant',
           'SELECT * FROM player_message',
+          'SELECT * FROM threat_entry',
+          'SELECT * FROM player_ability_state',
+          'SELECT * FROM active_healing_zone',
         ]);
       console.log('[SpacetimeDB] Subscribed to tables');
     } catch (err) {
@@ -117,9 +120,10 @@ class SpacetimeClient {
 
   // --- Reducer calls ---
 
-  registerPlayer(name: string) {
+  registerPlayer(name: string, playerClass: string = 'healer') {
     if (!this.conn) return;
-    this.conn.reducers.registerPlayer({ name });
+    // Note: The server now accepts playerClass parameter
+    (this.conn.reducers as any).registerPlayer({ name, playerClass });
   }
 
   login() {
@@ -167,6 +171,35 @@ class SpacetimeClient {
     this.conn.reducers.sendChat({ dungeonId, text });
   }
 
+  // Class ability reducers
+  // Note: These require module bindings to be regenerated after server publish
+  useTaunt(dungeonId: bigint, targetEnemyId: bigint) {
+    if (!this.conn) return;
+    try {
+      (this.conn.reducers as any).useTaunt({ dungeonId, targetEnemyId });
+    } catch (e) {
+      console.warn('[SpacetimeDB] useTaunt not available:', e);
+    }
+  }
+
+  useKnockback(dungeonId: bigint) {
+    if (!this.conn) return;
+    try {
+      (this.conn.reducers as any).useKnockback({ dungeonId });
+    } catch (e) {
+      console.warn('[SpacetimeDB] useKnockback not available:', e);
+    }
+  }
+
+  placeHealingZone(dungeonId: bigint, x: number, y: number) {
+    if (!this.conn) return;
+    try {
+      (this.conn.reducers as any).placeHealingZone({ dungeonId, x, y });
+    } catch (e) {
+      console.warn('[SpacetimeDB] placeHealingZone not available:', e);
+    }
+  }
+
   async getIdentity(): Promise<string | null> {
     if (!this.conn) return null;
     try {
@@ -177,7 +210,7 @@ class SpacetimeClient {
   }
 
   /** Read current player data from subscribed tables */
-  getPlayerData(): { gold: number; level: number; xp: number; dungeonsCleared: number } | null {
+  getPlayerData(): { gold: number; level: number; xp: number; dungeonsCleared: number; playerClass: string } | null {
     if (!this.conn || !this._state.identity) return null;
     try {
       const players = (this.conn.db as any).player.iter();
@@ -188,6 +221,7 @@ class SpacetimeClient {
             level: Number(p.level),
             xp: Number(p.xp),
             dungeonsCleared: Number(p.dungeonsCleared),
+            playerClass: p.playerClass || 'healer',
           };
         }
       }
@@ -220,7 +254,7 @@ class SpacetimeClient {
   }
 
   /** Get all other players currently participating in a dungeon */
-  getOtherPlayersInDungeon(dungeonId: bigint): Array<{identity: string, x: number, y: number, fx: number, fy: number, name: string, level: number, weaponIcon: string, armorIcon: string, accessoryIcon: string}> {
+  getOtherPlayersInDungeon(dungeonId: bigint): Array<{identity: string, x: number, y: number, fx: number, fy: number, name: string, level: number, playerClass: string, weaponIcon: string, armorIcon: string, accessoryIcon: string}> {
     if (!this.conn || !this._state.identity) return [];
     try {
       const targetDungeonId = dungeonId.toString();
@@ -232,11 +266,11 @@ class SpacetimeClient {
         }
       }
 
-      const result: Array<{identity: string, x: number, y: number, fx: number, fy: number, name: string, level: number, weaponIcon: string, armorIcon: string, accessoryIcon: string}> = [];
+      const result: Array<{identity: string, x: number, y: number, fx: number, fy: number, name: string, level: number, playerClass: string, weaponIcon: string, armorIcon: string, accessoryIcon: string}> = [];
       for (const pos of (this.conn.db as any).playerPosition.iter()) {
         const id = pos.identity.toHexString();
         if (id !== this._state.identity && pos.dungeonId.toString() === targetDungeonId && participants.has(id)) {
-          result.push({ identity: id, x: pos.x, y: pos.y, fx: pos.facingX, fy: pos.facingY, name: pos.name || 'Player', level: pos.level || 1, weaponIcon: pos.weaponIcon || '', armorIcon: pos.armorIcon || '', accessoryIcon: pos.accessoryIcon || '' });
+          result.push({ identity: id, x: pos.x, y: pos.y, fx: pos.facingX, fy: pos.facingY, name: pos.name || 'Player', level: pos.level || 1, playerClass: pos.playerClass || 'healer', weaponIcon: pos.weaponIcon || '', armorIcon: pos.armorIcon || '', accessoryIcon: pos.accessoryIcon || '' });
         }
       }
       return result;
@@ -271,20 +305,20 @@ class SpacetimeClient {
   // --- Co-op listeners ---
 
   /** Listen for other players' position changes */
-  onPlayerPositionChange(cb: (identity: string, dungeonId: bigint, x: number, y: number, fx: number, fy: number, name: string, level: number, weaponIcon: string, armorIcon: string, accessoryIcon: string) => void, onDelete?: (identity: string) => void) {
+  onPlayerPositionChange(cb: (identity: string, dungeonId: bigint, x: number, y: number, fx: number, fy: number, name: string, level: number, playerClass: string, weaponIcon: string, armorIcon: string, accessoryIcon: string) => void, onDelete?: (identity: string) => void) {
     if (!this.conn) return;
     try {
       const self = this._state.identity;
       const handler = (_ctx: any, row: any) => {
         const id = row.identity.toHexString();
         if (id === self) return;
-        cb(id, row.dungeonId, row.x, row.y, row.facingX, row.facingY, row.name || 'Player', row.level || 1, row.weaponIcon || '', row.armorIcon || '', row.accessoryIcon || '');
+        cb(id, row.dungeonId, row.x, row.y, row.facingX, row.facingY, row.name || 'Player', row.level || 1, row.playerClass || 'healer', row.weaponIcon || '', row.armorIcon || '', row.accessoryIcon || '');
       };
       (this.conn.db as any).playerPosition.onInsert(handler);
       (this.conn.db as any).playerPosition.onUpdate((_ctx: any, _old: any, row: any) => {
         const id = row.identity.toHexString();
         if (id === self) return;
-        cb(id, row.dungeonId, row.x, row.y, row.facingX, row.facingY, row.name || 'Player', row.level || 1, row.weaponIcon || '', row.armorIcon || '', row.accessoryIcon || '');
+        cb(id, row.dungeonId, row.x, row.y, row.facingX, row.facingY, row.name || 'Player', row.level || 1, row.playerClass || 'healer', row.weaponIcon || '', row.armorIcon || '', row.accessoryIcon || '');
       });
       if (onDelete) {
         (this.conn.db as any).playerPosition.onDelete((_ctx: any, row: any) => {

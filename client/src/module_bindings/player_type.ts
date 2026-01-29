@@ -13,6 +13,7 @@ import {
 export default __t.object("Player", {
   identity: __t.identity(),
   name: __t.string(),
+  playerClass: __t.string(),
   level: __t.u32(),
   xp: __t.u64(),
   hp: __t.i32(),

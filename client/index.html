@@ -36,6 +36,14 @@ canvas{display:block;width:100%;height:100%}
 .ability-btn .cd-text{position:absolute;font-size:16px;font-weight:800;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,0.8)}
 #btn-attack{background:radial-gradient(circle,#ef4444,#b91c1c)}
 #btn-dash{background:radial-gradient(circle,#3b82f6,#1d4ed8)}
+#btn-ability1{background:radial-gradient(circle,#a855f7,#7c3aed);display:none}
+#btn-ability2{background:radial-gradient(circle,#14b8a6,#0d9488);display:none}
+#btn-ability1.tank{background:radial-gradient(circle,#3b82f6,#1e40af)}
+#btn-ability2.tank{background:radial-gradient(circle,#60a5fa,#2563eb)}
+#btn-ability1.healer{background:radial-gradient(circle,#22c55e,#16a34a)}
+#btn-ability2.healer{background:radial-gradient(circle,#4ade80,#22c55e)}
+#btn-ability1.dps{background:radial-gradient(circle,#ef4444,#dc2626)}
+#btn-ability2.dps{background:radial-gradient(circle,#f97316,#ea580c)}
 #screen-overlay{position:absolute;top:0;left:0;width:100%;height:100%;display:none;align-items:center;justify-content:center;flex-direction:column;background:rgba(0,0,0,0.85);z-index:100;pointer-events:auto}
 #screen-overlay h1{color:#fbbf24;font-size:32px;text-shadow:0 2px 8px rgba(251,191,36,0.5);margin-bottom:8px}
 #screen-overlay p{color:#e2e8f0;font-size:16px;margin-bottom:24px}
@@ -198,6 +206,8 @@ canvas{display:block;width:100%;height:100%}
   <div id="joystick-zone"><div id="joystick-base"></div><div id="joystick-thumb"></div></div>
   <div id="ability-zone">
     <div class="ability-btn" id="btn-emote"><span>💬</span></div>
+    <div class="ability-btn" id="btn-ability1"><span>Q</span><div class="cd-overlay"></div><span class="cd-text"></span></div>
+    <div class="ability-btn" id="btn-ability2"><span>E</span><div class="cd-overlay"></div><span class="cd-text"></span></div>
     <div class="ability-btn" id="btn-attack"><span>⚔</span><div class="cd-overlay"></div><span class="cd-text"></span></div>
     <div class="ability-btn" id="btn-dash"><span>💨</span><div class="cd-overlay"></div><span class="cd-text"></span></div>
   </div>

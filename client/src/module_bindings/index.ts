@@ -48,6 +48,8 @@ import LoginReducer from "./login_reducer";
 export { LoginReducer };
 import PickupLootReducer from "./pickup_loot_reducer";
 export { PickupLootReducer };
+import PlaceHealingZoneReducer from "./place_healing_zone_reducer";
+export { PlaceHealingZoneReducer };
 import RegisterPlayerReducer from "./register_player_reducer";
 export { RegisterPlayerReducer };
 import SendChatReducer from "./send_chat_reducer";
@@ -64,12 +66,18 @@ import UpdatePositionReducer from "./update_position_reducer";
 export { UpdatePositionReducer };
 import UseDashReducer from "./use_dash_reducer";
 export { UseDashReducer };
+import UseKnockbackReducer from "./use_knockback_reducer";
+export { UseKnockbackReducer };
+import UseTauntReducer from "./use_taunt_reducer";
+export { UseTauntReducer };
 
 // Import and reexport all procedure arg types
 
 // Import and reexport all table handle types
 import ActiveDungeonRow from "./active_dungeon_table";
 export { ActiveDungeonRow };
+import ActiveHealingZoneRow from "./active_healing_zone_table";
+export { ActiveHealingZoneRow };
 import DungeonEnemyRow from "./dungeon_enemy_table";
 export { DungeonEnemyRow };
 import DungeonParticipantRow from "./dungeon_participant_table";
@@ -82,14 +90,20 @@ import LootDropRow from "./loot_drop_table";
 export { LootDropRow };
 import PlayerRow from "./player_table";
 export { PlayerRow };
+import PlayerAbilityStateRow from "./player_ability_state_table";
+export { PlayerAbilityStateRow };
 import PlayerMessageRow from "./player_message_table";
 export { PlayerMessageRow };
 import PlayerPositionRow from "./player_position_table";
 export { PlayerPositionRow };
+import ThreatEntryRow from "./threat_entry_table";
+export { ThreatEntryRow };
 
 // Import and reexport all types
 import ActiveDungeon from "./active_dungeon_type";
 export { ActiveDungeon };
+import ActiveHealingZone from "./active_healing_zone_type";
+export { ActiveHealingZone };
 import DungeonEnemy from "./dungeon_enemy_type";
 export { DungeonEnemy };
 import DungeonParticipant from "./dungeon_participant_type";
@@ -102,10 +116,14 @@ import LootDrop from "./loot_drop_type";
 export { LootDrop };
 import Player from "./player_type";
 export { Player };
+import PlayerAbilityState from "./player_ability_state_type";
+export { PlayerAbilityState };
 import PlayerMessage from "./player_message_type";
 export { PlayerMessage };
 import PlayerPosition from "./player_position_type";
 export { PlayerPosition };
+import ThreatEntry from "./threat_entry_type";
+export { ThreatEntry };
 
 /** The schema information for all tables in this module. This is defined the same was as the tables would have been defined in the server. */
 const tablesSchema = __schema(
@@ -120,6 +138,17 @@ const tablesSchema = __schema(
       { name: 'active_dungeon_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, ActiveDungeonRow),
+  __table({
+    name: 'active_healing_zone',
+    indexes: [
+      { name: 'id', algorithm: 'btree', columns: [
+        'id',
+      ] },
+    ],
+    constraints: [
+      { name: 'active_healing_zone_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, ActiveHealingZoneRow),
   __table({
     name: 'dungeon_enemy',
     indexes: [
@@ -187,6 +216,17 @@ const tablesSchema = __schema(
     ],
   }, PlayerRow),
   __table({
+    name: 'player_ability_state',
+    indexes: [
+      { name: 'identity', algorithm: 'btree', columns: [
+        'identity',
+      ] },
+    ],
+    constraints: [
+      { name: 'player_ability_state_identity_key', constraint: 'unique', columns: ['identity'] },
+    ],
+  }, PlayerAbilityStateRow),
+  __table({
     name: 'player_message',
     indexes: [
       { name: 'id', algorithm: 'btree', columns: [
@@ -208,6 +248,17 @@ const tablesSchema = __schema(
       { name: 'player_position_identity_key', constraint: 'unique', columns: ['identity'] },
     ],
   }, PlayerPositionRow),
+  __table({
+    name: 'threat_entry',
+    indexes: [
+      { name: 'id', algorithm: 'btree', columns: [
+        'id',
+      ] },
+    ],
+    constraints: [
+      { name: 'threat_entry_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, ThreatEntryRow),
 );
 
 /** The schema information for all reducers in this module. This is defined the same way as the reducers would have been defined in the server, except the body of the reducer is omitted in code generation. */
@@ -220,6 +271,7 @@ const reducersSchema = __reducers(
   __reducerSchema("equip_item", EquipItemReducer),
   __reducerSchema("login", LoginReducer),
   __reducerSchema("pickup_loot", PickupLootReducer),
+  __reducerSchema("place_healing_zone", PlaceHealingZoneReducer),
   __reducerSchema("register_player", RegisterPlayerReducer),
   __reducerSchema("send_chat", SendChatReducer),
   __reducerSchema("send_emote", SendEmoteReducer),
@@ -228,6 +280,8 @@ const reducersSchema = __reducers(
   __reducerSchema("unequip_item", UnequipItemReducer),
   __reducerSchema("update_position", UpdatePositionReducer),
   __reducerSchema("use_dash", UseDashReducer),
+  __reducerSchema("use_knockback", UseKnockbackReducer),
+  __reducerSchema("use_taunt", UseTauntReducer),
 );
 
 /** The schema information for all procedures in this module. This is defined the same way as the procedures would have been defined in the server. */

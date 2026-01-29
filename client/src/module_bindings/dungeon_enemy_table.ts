@@ -27,4 +27,10 @@ export default __t.row({
   targetY: __t.f32().name("target_y"),
   facingAngle: __t.f32().name("facing_angle"),
   packId: __t.option(__t.u64()).name("pack_id"),
+  currentTarget: __t.option(__t.string()).name("current_target"),
+  isTaunted: __t.bool().name("is_taunted"),
+  tauntedBy: __t.option(__t.string()).name("taunted_by"),
+  tauntTimer: __t.f32().name("taunt_timer"),
+  isBoss: __t.bool().name("is_boss"),
+  bossPhase: __t.u32().name("boss_phase"),
 });
