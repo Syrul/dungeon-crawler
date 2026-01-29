@@ -17,4 +17,9 @@ export default __t.row({
   y: __t.f32(),
   facingX: __t.f32().name("facing_x"),
   facingY: __t.f32().name("facing_y"),
+  name: __t.string(),
+  level: __t.u32(),
+  weaponIcon: __t.string().name("weapon_icon"),
+  armorIcon: __t.string().name("armor_icon"),
+  accessoryIcon: __t.string().name("accessory_icon"),
 });

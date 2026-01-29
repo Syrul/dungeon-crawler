@@ -1,7 +1,7 @@
 // main.ts — Entry point
 // Server-authoritative multiplayer with client interpolation
 
-import { initGame, setGameMode, setCallbacks, restoreFromServer, updateOtherPlayer, removeOtherPlayer, syncEnemyFromServer, removeServerEnemy, addServerLoot, removeServerLoot, syncRoom, getCurrentRoom, initServerEnemies, getServerEnemyIds, syncPlayerStats, clientToServerX, clientToServerY } from './game';
+import { initGame, setGameMode, setCallbacks, restoreFromServer, updateOtherPlayer, removeOtherPlayer, syncEnemyFromServer, removeServerEnemy, addServerLoot, removeServerLoot, syncRoom, getCurrentRoom, initServerEnemies, getServerEnemyIds, syncPlayerStats, clientToServerX, clientToServerY, getEquippedIcons } from './game';
 import { spacetimeClient } from './spacetime';
 
 const statusDot = document.getElementById('connection-status');
@@ -28,10 +28,10 @@ async function main() {
     // for all existing rows on initial subscription. Instead, we poll after startDungeon.
 
     // Co-op: listen for other player positions
-    spacetimeClient.onPlayerPositionChange((identity, dungeonId, x, y, fx, fy) => {
+    spacetimeClient.onPlayerPositionChange((identity, dungeonId, x, y, fx, fy, name, level, weaponIcon, armorIcon, accessoryIcon) => {
       // Use string comparison for bigint
       if (activeDungeonId != null && dungeonId.toString() === activeDungeonId.toString()) {
-        updateOtherPlayer(identity, x, y, fx, fy);
+        updateOtherPlayer(identity, x, y, fx, fy, name, level, weaponIcon, armorIcon, accessoryIcon);
       }
     }, (identity) => {
       removeOtherPlayer(identity);
@@ -102,7 +102,7 @@ async function main() {
             console.log('[Main] Initialized', serverEnemies.length, 'server enemies for room', getCurrentRoom());
             // Load existing players already in the dungeon
             const existingPlayers = spacetimeClient.getOtherPlayersInDungeon(activeDungeonId);
-            existingPlayers.forEach(p => updateOtherPlayer(p.identity, p.x, p.y, p.fx, p.fy));
+            existingPlayers.forEach(p => updateOtherPlayer(p.identity, p.x, p.y, p.fx, p.fy, p.name, p.level, p.weaponIcon, p.armorIcon, p.accessoryIcon));
             console.log('[Main] Loaded', existingPlayers.length, 'existing players in dungeon');
             clearInterval(poll);
           }
@@ -125,8 +125,9 @@ async function main() {
       },
       onPlayerMove: (x, y, facingX, facingY) => {
         if (activeDungeonId != null) {
-          // Scale client coords to server coords before sending
-          spacetimeClient.updatePosition(activeDungeonId, clientToServerX(x), clientToServerY(y), facingX, facingY);
+          // Scale client coords to server coords before sending, include equipment icons
+          const eq = getEquippedIcons();
+          spacetimeClient.updatePosition(activeDungeonId, clientToServerX(x), clientToServerY(y), facingX, facingY, eq.weapon, eq.armor, eq.accessory);
         }
       },
       onAttack: (enemyIdx) => {

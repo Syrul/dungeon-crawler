@@ -71,6 +71,13 @@ pub struct PlayerPosition {
     y: f32,
     facing_x: f32,
     facing_y: f32,
+    // Visual appearance data for other players to render
+    name: String,
+    level: u32,
+    // Equipped item icons (emoji strings, empty if not equipped)
+    weapon_icon: String,
+    armor_icon: String,
+    accessory_icon: String,
 }
 
 /// Loot dropped on the ground
@@ -257,49 +264,62 @@ pub fn start_dungeon(ctx: &ReducerContext) -> Result<(), String> {
         log::info!("Cleaned up old dungeon for respawning player {:?}", ctx.sender);
     }
 
-    // Check if an active dungeon with OTHER participants exists — join it (but not if respawning)
-    if !was_dead {
-        let latest = ctx.db.active_dungeon().iter().max_by_key(|d| d.id);
-        if let Some(existing) = latest {
-            let dungeon_id = existing.id;
-            let has_other_participants = ctx.db.dungeon_participant().iter()
-                .any(|p| p.dungeon_id == dungeon_id && p.player_identity != ctx.sender);
-            if has_other_participants {
-                // Check not already a participant
-                let already_joined = ctx.db.dungeon_participant().iter()
-                    .any(|p| p.dungeon_id == dungeon_id && p.player_identity == ctx.sender);
-                if !already_joined {
-                    ctx.db.dungeon_participant().insert(DungeonParticipant {
-                        id: 0,
-                        dungeon_id,
-                        player_identity: ctx.sender,
-                    });
-                }
-
-                // Initialize player position in the existing dungeon
-                if let Some(pos) = ctx.db.player_position().identity().find(ctx.sender) {
-                    ctx.db.player_position().identity().update(PlayerPosition {
-                        dungeon_id,
-                        x: 400.0,
-                        y: 300.0,
-                        facing_x: 1.0,
-                        facing_y: 0.0,
-                        ..pos
-                    });
-                } else {
-                    ctx.db.player_position().insert(PlayerPosition {
-                        identity: ctx.sender,
-                        dungeon_id,
-                        x: 400.0,
-                        y: 300.0,
-                        facing_x: 1.0,
-                        facing_y: 0.0,
-                    });
-                }
-
-                log::info!("Player {:?} joined existing dungeon {}", ctx.sender, dungeon_id);
-                return Ok(());
+    // Check if an active dungeon with OTHER participants exists — join it
+    // (After cleanup, respawning players can join other players' dungeons)
+    let latest = ctx.db.active_dungeon().iter().max_by_key(|d| d.id);
+    if let Some(existing) = latest {
+        let dungeon_id = existing.id;
+        let has_other_participants = ctx.db.dungeon_participant().iter()
+            .any(|p| p.dungeon_id == dungeon_id && p.player_identity != ctx.sender);
+        if has_other_participants {
+            // Check not already a participant
+            let already_joined = ctx.db.dungeon_participant().iter()
+                .any(|p| p.dungeon_id == dungeon_id && p.player_identity == ctx.sender);
+            if !already_joined {
+                ctx.db.dungeon_participant().insert(DungeonParticipant {
+                    id: 0,
+                    dungeon_id,
+                    player_identity: ctx.sender,
+                });
             }
+
+            // Get player data for visual appearance
+            let player_for_pos = ctx.db.player().identity().find(ctx.sender)
+                .ok_or("Player not found")?;
+
+            // Initialize player position in the existing dungeon
+            if let Some(old_pos) = ctx.db.player_position().identity().find(ctx.sender) {
+                ctx.db.player_position().identity().update(PlayerPosition {
+                    identity: ctx.sender,
+                    dungeon_id,
+                    x: 270.0,  // Center of room
+                    y: 360.0,
+                    facing_x: 1.0,
+                    facing_y: 0.0,
+                    name: player_for_pos.name.clone(),
+                    level: player_for_pos.level,
+                    weapon_icon: old_pos.weapon_icon,
+                    armor_icon: old_pos.armor_icon,
+                    accessory_icon: old_pos.accessory_icon,
+                });
+            } else {
+                ctx.db.player_position().insert(PlayerPosition {
+                    identity: ctx.sender,
+                    dungeon_id,
+                    x: 270.0,  // Center of room
+                    y: 360.0,
+                    facing_x: 1.0,
+                    facing_y: 0.0,
+                    name: player_for_pos.name.clone(),
+                    level: player_for_pos.level,
+                    weapon_icon: String::new(),
+                    armor_icon: String::new(),
+                    accessory_icon: String::new(),
+                });
+            }
+
+            log::info!("Player {:?} joined existing dungeon {}", ctx.sender, dungeon_id);
+            return Ok(());
         }
     }
 
@@ -336,24 +356,34 @@ pub fn start_dungeon(ctx: &ReducerContext) -> Result<(), String> {
         log::info!("Started enemy AI tick scheduler");
     }
 
-    // Initialize player position
-    if let Some(pos) = ctx.db.player_position().identity().find(ctx.sender) {
+    // Initialize player position (player variable is from line ~309)
+    if let Some(old_pos) = ctx.db.player_position().identity().find(ctx.sender) {
         ctx.db.player_position().identity().update(PlayerPosition {
+            identity: ctx.sender,
             dungeon_id: dungeon.id,
-            x: 400.0,
-            y: 300.0,
+            x: 270.0,  // Center of room
+            y: 360.0,
             facing_x: 1.0,
             facing_y: 0.0,
-            ..pos
+            name: player.name.clone(),
+            level: player.level,
+            weapon_icon: old_pos.weapon_icon,
+            armor_icon: old_pos.armor_icon,
+            accessory_icon: old_pos.accessory_icon,
         });
     } else {
         ctx.db.player_position().insert(PlayerPosition {
             identity: ctx.sender,
             dungeon_id: dungeon.id,
-            x: 400.0,
-            y: 300.0,
+            x: 270.0,  // Center of room
+            y: 360.0,
             facing_x: 1.0,
             facing_y: 0.0,
+            name: player.name.clone(),
+            level: player.level,
+            weapon_icon: String::new(),
+            armor_icon: String::new(),
+            accessory_icon: String::new(),
         });
     }
 
@@ -396,9 +426,17 @@ pub fn enter_room(ctx: &ReducerContext, dungeon_id: u64, room_index: u32) -> Res
     for pid in participant_ids {
         if let Some(pos) = ctx.db.player_position().identity().find(pid) {
             ctx.db.player_position().identity().update(PlayerPosition {
-                x: 400.0,
-                y: 300.0,
-                ..pos
+                identity: pid,
+                dungeon_id: pos.dungeon_id,
+                x: 270.0,  // Center of room
+                y: 360.0,
+                facing_x: pos.facing_x,
+                facing_y: pos.facing_y,
+                name: pos.name.clone(),
+                level: pos.level,
+                weapon_icon: pos.weapon_icon.clone(),
+                armor_icon: pos.armor_icon.clone(),
+                accessory_icon: pos.accessory_icon.clone(),
             });
         }
     }
@@ -463,17 +501,29 @@ pub fn update_position(
     y: f32,
     facing_x: f32,
     facing_y: f32,
+    weapon_icon: String,
+    armor_icon: String,
+    accessory_icon: String,
 ) -> Result<(), String> {
     if let Some(pos) = ctx.db.player_position().identity().find(ctx.sender) {
+        // Preserve name/level from existing position, update equipment
         ctx.db.player_position().identity().update(PlayerPosition {
+            identity: ctx.sender,
             dungeon_id,
             x,
             y,
             facing_x,
             facing_y,
-            ..pos
+            name: pos.name.clone(),
+            level: pos.level,
+            weapon_icon,
+            armor_icon,
+            accessory_icon,
         });
     } else {
+        // Fetch player for visual data
+        let player = ctx.db.player().identity().find(ctx.sender)
+            .ok_or("Player not found")?;
         ctx.db.player_position().insert(PlayerPosition {
             identity: ctx.sender,
             dungeon_id,
@@ -481,6 +531,11 @@ pub fn update_position(
             y,
             facing_x,
             facing_y,
+            name: player.name.clone(),
+            level: player.level,
+            weapon_icon,
+            armor_icon,
+            accessory_icon,
         });
     }
     Ok(())
@@ -570,11 +625,17 @@ pub fn use_dash(
     let new_y = pos.y + dir_y * dash_distance;
 
     ctx.db.player_position().identity().update(PlayerPosition {
+        identity: ctx.sender,
+        dungeon_id: pos.dungeon_id,
         x: new_x,
         y: new_y,
         facing_x: dir_x,
         facing_y: dir_y,
-        ..pos
+        name: pos.name.clone(),
+        level: pos.level,
+        weapon_icon: pos.weapon_icon.clone(),
+        armor_icon: pos.armor_icon.clone(),
+        accessory_icon: pos.accessory_icon.clone(),
     });
 
     log::info!("Player dashed in dungeon {}", dungeon_id);

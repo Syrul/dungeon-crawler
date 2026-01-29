@@ -17,6 +17,11 @@ export default __t.object("PlayerPosition", {
   y: __t.f32(),
   facingX: __t.f32(),
   facingY: __t.f32(),
+  name: __t.string(),
+  level: __t.u32(),
+  weaponIcon: __t.string(),
+  armorIcon: __t.string(),
+  accessoryIcon: __t.string(),
 });
 
 

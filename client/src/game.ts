@@ -486,6 +486,17 @@ function getPlayerColor(){
   return {main:'#3b82f6',mid:'#2563eb',light:'#93c5fd'}; // blue
 }
 
+function getPlayerColorForLevel(level: number) {
+  if(level>=10) return {main:'#fbbf24',mid:'#d97706',light:'#fde68a'}; // gold
+  if(level>=7) return {main:'#a855f7',mid:'#7e22ce',light:'#c4b5fd'}; // purple
+  if(level>=4) return {main:'#22c55e',mid:'#16a34a',light:'#86efac'}; // green
+  return {main:'#3b82f6',mid:'#2563eb',light:'#93c5fd'}; // blue
+}
+
+function getPlayerRadiusForLevel(level: number) {
+  return PLAYER_R + Math.min(level-1,12)*0.5; // +0.5 per level, capped at +6
+}
+
 function getPlayerRadius(){
   return PLAYER_R + Math.min(playerLevel-1,12)*0.5; // +0.5 per level, capped at +6
 }
@@ -570,6 +581,13 @@ interface OtherPlayer {
   // target from server
   tx: number; ty: number; tfx: number; tfy: number;
   lastUpdate: number;
+  // Visual appearance
+  name: string;
+  level: number;
+  // Equipment icons
+  weaponIcon: string;
+  armorIcon: string;
+  accessoryIcon: string;
 }
 let otherPlayers: Map<string, OtherPlayer> = new Map();
 let serverEnemyIds: bigint[] = []; // maps local enemy index → server enemy ID
@@ -624,15 +642,20 @@ function getEnemyVisuals(enemyType: string): { color: string, r: number, eyeColo
   }
 }
 
-export function updateOtherPlayer(id: string, x: number, y: number, fx: number, fy: number) {
+export function updateOtherPlayer(id: string, x: number, y: number, fx: number, fy: number, name: string = 'Player', level: number = 1, weaponIcon: string = '', armorIcon: string = '', accessoryIcon: string = '') {
   const existing = otherPlayers.get(id);
   if (existing) {
     // Move current rendered position to where we are now, set new target
     existing.tx = x; existing.ty = y;
     existing.tfx = fx; existing.tfy = fy;
     existing.lastUpdate = performance.now();
+    existing.name = name;
+    existing.level = level;
+    existing.weaponIcon = weaponIcon;
+    existing.armorIcon = armorIcon;
+    existing.accessoryIcon = accessoryIcon;
   } else {
-    otherPlayers.set(id, {x, y, facingX: fx, facingY: fy, tx: x, ty: y, tfx: fx, tfy: fy, lastUpdate: performance.now()});
+    otherPlayers.set(id, {x, y, facingX: fx, facingY: fy, tx: x, ty: y, tfx: fx, tfy: fy, lastUpdate: performance.now(), name, level, weaponIcon, armorIcon, accessoryIcon});
   }
 }
 export function removeOtherPlayer(id: string) {
@@ -2913,14 +2936,16 @@ function draw(){
   
   // Other players (co-op)
   otherPlayers.forEach((op, id) => {
+    const opColor = getPlayerColorForLevel(op.level);
+    const opRadius = getPlayerRadiusForLevel(op.level);
     ctx.save();
     ctx.translate(op.x, op.y);
     // Shadow
-    ctx.fillStyle='rgba(0,0,0,0.3)';ctx.beginPath();ctx.ellipse(0,PLAYER_R-2,PLAYER_R,PLAYER_R*0.4,0,0,Math.PI*2);ctx.fill();
-    // Body (blue tint to distinguish)
-    ctx.fillStyle='#3b82f6';ctx.beginPath();ctx.arc(0,0,PLAYER_R,0,Math.PI*2);ctx.fill();
-    ctx.fillStyle='#2563eb';ctx.beginPath();ctx.arc(0,2,PLAYER_R-3,0,Math.PI*2);ctx.fill();
-    ctx.fillStyle='#3b82f6';ctx.beginPath();ctx.arc(0,-1,PLAYER_R-5,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='rgba(0,0,0,0.3)';ctx.beginPath();ctx.ellipse(0,opRadius-2,opRadius,opRadius*0.4,0,0,Math.PI*2);ctx.fill();
+    // Body (colored by level)
+    ctx.fillStyle=opColor.main;ctx.beginPath();ctx.arc(0,0,opRadius,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle=opColor.mid;ctx.beginPath();ctx.arc(0,2,opRadius-3,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle=opColor.main;ctx.beginPath();ctx.arc(0,-1,opRadius-5,0,Math.PI*2);ctx.fill();
     // Eyes
     const ofa=Math.atan2(op.facingY,op.facingX);
     const opex=Math.cos(ofa)*4,opey=Math.sin(ofa)*4;
@@ -2930,9 +2955,18 @@ function draw(){
     ctx.fillStyle='#1e293b';
     ctx.beginPath();ctx.arc(-4+opex*1.3,-2+opey*1.3,1.5,0,Math.PI*2);ctx.fill();
     ctx.beginPath();ctx.arc(4+opex*1.3,-2+opey*1.3,1.5,0,Math.PI*2);ctx.fill();
-    // Name label
-    ctx.fillStyle='#93c5fd';ctx.font='10px system-ui';ctx.textAlign='center';ctx.textBaseline='bottom';
-    ctx.fillText('Player 2', 0, -PLAYER_R-4);
+    // Equipment icons orbiting around player
+    const opGear = [op.weaponIcon, op.armorIcon, op.accessoryIcon].filter(i => i);
+    opGear.forEach((icon, i) => {
+      const angle = -Math.PI/2 + i*(Math.PI*2/3) + performance.now()*0.001;
+      const gx = Math.cos(angle)*(opRadius+14);
+      const gy = Math.sin(angle)*(opRadius+14);
+      ctx.font='12px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText(icon, gx, gy);
+    });
+    // Name label with level
+    ctx.fillStyle=opColor.light;ctx.font='bold 10px system-ui';ctx.textAlign='center';ctx.textBaseline='bottom';
+    ctx.fillText(`${op.name} Lv${op.level}`, 0, -opRadius-4);
     ctx.restore();
   });
 
@@ -3153,6 +3187,15 @@ export function syncPlayerStats(hp: number, maxHp: number, xp?: number, level?: 
       }
     }
   }
+}
+
+/** Get equipped item icons for syncing to server */
+export function getEquippedIcons(): { weapon: string, armor: string, accessory: string } {
+  return {
+    weapon: (equipped.weapon as any)?.icon || '',
+    armor: (equipped.armor as any)?.icon || '',
+    accessory: (equipped.accessory as any)?.icon || '',
+  };
 }
 
 export function initGame() {

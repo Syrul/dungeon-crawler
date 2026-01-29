@@ -2,9 +2,10 @@
 import { DbConnection, DbConnectionBuilder } from './module_bindings';
 import type { ConnectionState } from './types';
 
-const SPACETIMEDB_URI = 'ws://localhost:3000';
-const DB_NAME = 'dungeon-crawler';
-const TOKEN_KEY = 'spacetimedb_token';
+const SPACETIMEDB_URI = 'wss://maincloud.spacetimedb.com';
+const DB_NAME = 'dungeon-crawler-syrul';
+// Token key includes URI to avoid using localhost token on maincloud
+const TOKEN_KEY = `spacetimedb_token_${DB_NAME}`;
 
 type StateChangeCallback = (state: ConnectionState) => void;
 
@@ -114,9 +115,9 @@ class SpacetimeClient {
     this.conn.reducers.login({});
   }
 
-  updatePosition(dungeonId: bigint, x: number, y: number, facingX: number, facingY: number) {
+  updatePosition(dungeonId: bigint, x: number, y: number, facingX: number, facingY: number, weaponIcon: string = '', armorIcon: string = '', accessoryIcon: string = '') {
     if (!this.conn) return;
-    this.conn.reducers.updatePosition({ dungeonId, x, y, facingX, facingY });
+    this.conn.reducers.updatePosition({ dungeonId, x, y, facingX, facingY, weaponIcon, armorIcon, accessoryIcon });
   }
 
   attack(dungeonId: bigint, targetEnemyId: bigint) {
@@ -188,7 +189,7 @@ class SpacetimeClient {
   }
 
   /** Get all other players currently participating in a dungeon */
-  getOtherPlayersInDungeon(dungeonId: bigint): Array<{identity: string, x: number, y: number, fx: number, fy: number}> {
+  getOtherPlayersInDungeon(dungeonId: bigint): Array<{identity: string, x: number, y: number, fx: number, fy: number, name: string, level: number, weaponIcon: string, armorIcon: string, accessoryIcon: string}> {
     if (!this.conn || !this._state.identity) return [];
     try {
       const targetDungeonId = dungeonId.toString();
@@ -200,11 +201,11 @@ class SpacetimeClient {
         }
       }
 
-      const result: Array<{identity: string, x: number, y: number, fx: number, fy: number}> = [];
+      const result: Array<{identity: string, x: number, y: number, fx: number, fy: number, name: string, level: number, weaponIcon: string, armorIcon: string, accessoryIcon: string}> = [];
       for (const pos of (this.conn.db as any).playerPosition.iter()) {
         const id = pos.identity.toHexString();
         if (id !== this._state.identity && pos.dungeonId.toString() === targetDungeonId && participants.has(id)) {
-          result.push({ identity: id, x: pos.x, y: pos.y, fx: pos.facingX, fy: pos.facingY });
+          result.push({ identity: id, x: pos.x, y: pos.y, fx: pos.facingX, fy: pos.facingY, name: pos.name || 'Player', level: pos.level || 1, weaponIcon: pos.weaponIcon || '', armorIcon: pos.armorIcon || '', accessoryIcon: pos.accessoryIcon || '' });
         }
       }
       return result;
@@ -239,20 +240,20 @@ class SpacetimeClient {
   // --- Co-op listeners ---
 
   /** Listen for other players' position changes */
-  onPlayerPositionChange(cb: (identity: string, dungeonId: bigint, x: number, y: number, fx: number, fy: number) => void, onDelete?: (identity: string) => void) {
+  onPlayerPositionChange(cb: (identity: string, dungeonId: bigint, x: number, y: number, fx: number, fy: number, name: string, level: number, weaponIcon: string, armorIcon: string, accessoryIcon: string) => void, onDelete?: (identity: string) => void) {
     if (!this.conn) return;
     try {
       const self = this._state.identity;
       const handler = (_ctx: any, row: any) => {
         const id = row.identity.toHexString();
         if (id === self) return;
-        cb(id, row.dungeonId, row.x, row.y, row.facingX, row.facingY);
+        cb(id, row.dungeonId, row.x, row.y, row.facingX, row.facingY, row.name || 'Player', row.level || 1, row.weaponIcon || '', row.armorIcon || '', row.accessoryIcon || '');
       };
       (this.conn.db as any).playerPosition.onInsert(handler);
       (this.conn.db as any).playerPosition.onUpdate((_ctx: any, _old: any, row: any) => {
         const id = row.identity.toHexString();
         if (id === self) return;
-        cb(id, row.dungeonId, row.x, row.y, row.facingX, row.facingY);
+        cb(id, row.dungeonId, row.x, row.y, row.facingX, row.facingY, row.name || 'Player', row.level || 1, row.weaponIcon || '', row.armorIcon || '', row.accessoryIcon || '');
       });
       if (onDelete) {
         (this.conn.db as any).playerPosition.onDelete((_ctx: any, row: any) => {

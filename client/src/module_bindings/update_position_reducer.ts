@@ -16,4 +16,7 @@ export default {
   y: __t.f32(),
   facingX: __t.f32(),
   facingY: __t.f32(),
+  weaponIcon: __t.string(),
+  armorIcon: __t.string(),
+  accessoryIcon: __t.string(),
 };
