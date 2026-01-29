@@ -64,7 +64,7 @@ function haptic(type){
 
 // ─── SFX (Web Audio API) ───
 let audioCtx;
-function initAudio(){if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)();}
+function initAudio(){if(!audioCtx)audioCtx=new(window.AudioContext||(window as any).webkitAudioContext)();}
 function sfx(type){
   initAudio();if(!audioCtx)return;
   const o=audioCtx.createOscillator(),g=audioCtx.createGain();
@@ -337,9 +337,9 @@ function generateGear(slot,depth,isBoss){
   if(rarity.name==='legendary')return generateLegendary(slot,ilvl);
   const types=GEAR_TYPES[slot];
   const type=types[Math.floor(Math.random()*types.length)];
-  const stats={};
+  const stats:Record<string,number>={};
   for(const[k,v]of Object.entries(type.base)){
-    stats[k]=Math.ceil(v*(1+ilvl*0.15)*(0.8+Math.random()*0.4));
+    stats[k]=Math.ceil((v as number)*(1+ilvl*0.15)*(0.8+Math.random()*0.4));
   }
   const affixes=rollAffixes(rarity,ilvl);
   // Apply affix flat stats to stats
@@ -467,9 +467,9 @@ function getComputedStats(item){
       for(const[k,v]of Object.entries(card.bonus)){
         if(card.bonusType==='pct'){
           const base=item.stats[k]||10; // minimum base of 10 for pct
-          s[k]+=Math.ceil(base*v/100);
+          s[k]+=Math.ceil(base*(v as number)/100);
         }else{
-          if(k in s)s[k]+=v;
+          if(k in s)s[k]+=(v as number);
         }
       }
     }
@@ -1163,7 +1163,7 @@ let hubParticles=[];
 let hubAnimFrame=null;
 
 function startHubAmbient(){
-  const hc=document.getElementById('hub-character-canvas');
+  const hc=document.getElementById('hub-character-canvas') as HTMLCanvasElement;
   const hctx=hc.getContext('2d');
   hubParticles=[];
   for(let i=0;i<30;i++){
@@ -1260,9 +1260,9 @@ function stopHubAmbient(){
 
 // ─── INIT ───
 function init(){
-  canvas=document.getElementById('game');
+  canvas=document.getElementById('game') as HTMLCanvasElement;
   ctx=canvas.getContext('2d');
-  minimapCtx=document.getElementById('minimap').getContext('2d');
+  minimapCtx=(document.getElementById('minimap') as HTMLCanvasElement).getContext('2d');
   resize();
   window.addEventListener('resize',resize);
   setupTouch();
@@ -1322,9 +1322,9 @@ function showHub(){
   // Display class icon and level
   const classInfo = CLASS_STATS[playerClass];
   document.getElementById('hub-hero-level').textContent=`${classInfo.icon} Level ${playerLevel} ${playerClass.toUpperCase()}`;
-  document.getElementById('hub-atk').textContent=totalAtk();
-  document.getElementById('hub-def').textContent=totalDef();
-  document.getElementById('hub-hp').textContent=totalMaxHp();
+  document.getElementById('hub-atk').textContent=String(totalAtk());
+  document.getElementById('hub-def').textContent=String(totalDef());
+  document.getElementById('hub-hp').textContent=String(totalMaxHp());
 
   let info=`💰 <span>${gold}</span> Gold &nbsp;·&nbsp; Dungeon Depth: <span>${dungeonDepth}</span>`;
   document.getElementById('hub-info').innerHTML=info;
@@ -2592,8 +2592,9 @@ function update(dt){
 
 function updateAbilityUI(id,ab){
   const btn=document.getElementById(id);
-  const overlay=btn.querySelector('.cd-overlay');
-  const text=btn.querySelector('.cd-text');
+  if(!btn)return;
+  const overlay=btn.querySelector('.cd-overlay') as HTMLElement;
+  const text=btn.querySelector('.cd-text') as HTMLElement;
   if(ab.cd>0){
     const pct=ab.cd/ab.maxCd;
     const deg=pct*360;
