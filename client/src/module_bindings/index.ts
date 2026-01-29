@@ -50,6 +50,10 @@ import PickupLootReducer from "./pickup_loot_reducer";
 export { PickupLootReducer };
 import RegisterPlayerReducer from "./register_player_reducer";
 export { RegisterPlayerReducer };
+import SendChatReducer from "./send_chat_reducer";
+export { SendChatReducer };
+import SendEmoteReducer from "./send_emote_reducer";
+export { SendEmoteReducer };
 import StartDungeonReducer from "./start_dungeon_reducer";
 export { StartDungeonReducer };
 import TickEnemiesReducer from "./tick_enemies_reducer";
@@ -78,6 +82,8 @@ import LootDropRow from "./loot_drop_table";
 export { LootDropRow };
 import PlayerRow from "./player_table";
 export { PlayerRow };
+import PlayerMessageRow from "./player_message_table";
+export { PlayerMessageRow };
 import PlayerPositionRow from "./player_position_table";
 export { PlayerPositionRow };
 
@@ -96,6 +102,8 @@ import LootDrop from "./loot_drop_type";
 export { LootDrop };
 import Player from "./player_type";
 export { Player };
+import PlayerMessage from "./player_message_type";
+export { PlayerMessage };
 import PlayerPosition from "./player_position_type";
 export { PlayerPosition };
 
@@ -179,6 +187,17 @@ const tablesSchema = __schema(
     ],
   }, PlayerRow),
   __table({
+    name: 'player_message',
+    indexes: [
+      { name: 'id', algorithm: 'btree', columns: [
+        'id',
+      ] },
+    ],
+    constraints: [
+      { name: 'player_message_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, PlayerMessageRow),
+  __table({
     name: 'player_position',
     indexes: [
       { name: 'identity', algorithm: 'btree', columns: [
@@ -202,6 +221,8 @@ const reducersSchema = __reducers(
   __reducerSchema("login", LoginReducer),
   __reducerSchema("pickup_loot", PickupLootReducer),
   __reducerSchema("register_player", RegisterPlayerReducer),
+  __reducerSchema("send_chat", SendChatReducer),
+  __reducerSchema("send_emote", SendEmoteReducer),
   __reducerSchema("start_dungeon", StartDungeonReducer),
   __reducerSchema("tick_enemies", TickEnemiesReducer),
   __reducerSchema("unequip_item", UnequipItemReducer),

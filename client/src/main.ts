@@ -1,7 +1,7 @@
 // main.ts — Entry point
 // Server-authoritative multiplayer with client interpolation
 
-import { initGame, setGameMode, setCallbacks, restoreFromServer, updateOtherPlayer, removeOtherPlayer, syncEnemyFromServer, removeServerEnemy, addServerLoot, removeServerLoot, syncRoom, getCurrentRoom, initServerEnemies, getServerEnemyIds, syncPlayerStats, clientToServerX, clientToServerY, getEquippedIcons } from './game';
+import { initGame, setGameMode, setCallbacks, restoreFromServer, updateOtherPlayer, removeOtherPlayer, syncEnemyFromServer, removeServerEnemy, addServerLoot, removeServerLoot, syncRoom, getCurrentRoom, initServerEnemies, getServerEnemyIds, syncPlayerStats, clientToServerX, clientToServerY, getEquippedIcons, receiveMessage } from './game';
 import { spacetimeClient } from './spacetime';
 
 const statusDot = document.getElementById('connection-status');
@@ -84,6 +84,25 @@ async function main() {
       }
     });
 
+    // Co-op: listen for player messages (emotes and chat)
+    spacetimeClient.onMessageReceived((msg) => {
+      // Only process messages for current dungeon
+      if (activeDungeonId == null) return;
+      if (msg.dungeonId.toString() !== activeDungeonId.toString()) return;
+
+      receiveMessage(msg.senderIdentity, msg.senderName, msg.messageType, msg.content);
+    });
+
+    // Store identity for local player message display
+    spacetimeClient.getIdentity().then(identity => {
+      if (identity) {
+        (window as any).__spacetimeIdentity = identity;
+      }
+    });
+
+    // Start subscription AFTER all listeners are registered
+    spacetimeClient.startSubscription();
+
     // Set up callbacks for online mode
     setCallbacks({
       onStartDungeon: () => {
@@ -95,11 +114,17 @@ async function main() {
           const d = spacetimeClient.getActiveDungeon();
           if (d) {
             activeDungeonId = d.id;
-            console.log('[Main] Resolved active dungeon ID (poll):', activeDungeonId);
-            // Initialize enemies from server (full data for interpolation)
-            const serverEnemies = spacetimeClient.getEnemiesForRoom(activeDungeonId, getCurrentRoom());
+            console.log('[Main] Resolved active dungeon ID (poll):', activeDungeonId, 'server room:', d.currentRoom);
+            // Sync to server's room if different from client
+            const clientRoom = getCurrentRoom();
+            if (d.currentRoom !== clientRoom) {
+              console.log('[Main] Syncing room from server:', d.currentRoom);
+              syncRoom(d.currentRoom);
+            }
+            // Initialize enemies from server's room (not client's room)
+            const serverEnemies = spacetimeClient.getEnemiesForRoom(activeDungeonId, d.currentRoom);
             initServerEnemies(serverEnemies);
-            console.log('[Main] Initialized', serverEnemies.length, 'server enemies for room', getCurrentRoom());
+            console.log('[Main] Initialized', serverEnemies.length, 'server enemies for room', d.currentRoom);
             // Load existing players already in the dungeon
             const existingPlayers = spacetimeClient.getOtherPlayersInDungeon(activeDungeonId);
             existingPlayers.forEach(p => updateOtherPlayer(p.identity, p.x, p.y, p.fx, p.fy, p.name, p.level, p.weaponIcon, p.armorIcon, p.accessoryIcon));
@@ -153,6 +178,16 @@ async function main() {
         if (activeDungeonId != null) {
           spacetimeClient.completeDungeon(activeDungeonId);
           activeDungeonId = null;
+        }
+      },
+      onSendEmote: (content) => {
+        if (activeDungeonId != null) {
+          spacetimeClient.sendEmote(activeDungeonId, content);
+        }
+      },
+      onSendChat: (text) => {
+        if (activeDungeonId != null) {
+          spacetimeClient.sendChat(activeDungeonId, text);
         }
       },
     });

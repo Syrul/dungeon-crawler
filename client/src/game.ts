@@ -590,6 +590,26 @@ interface OtherPlayer {
   accessoryIcon: string;
 }
 let otherPlayers: Map<string, OtherPlayer> = new Map();
+
+// ─── PLAYER MESSAGES (SPEECH BUBBLES) ───
+interface ActiveMessage {
+  senderIdentity: string;
+  senderName: string;
+  content: string;
+  messageType: string;
+  createdAt: number;
+  expiresAt: number;
+}
+let activeMessages: Map<string, ActiveMessage> = new Map();
+const MESSAGE_DURATION = 5000; // 5 seconds
+
+// Emote wheel state
+let emoteWheelOpen = false;
+let emoteButtonHoldTimer: number | null = null;
+const EMOTE_HOLD_THRESHOLD = 300; // ms to trigger emote wheel
+
+// Chat input state
+let chatInputOpen = false;
 let serverEnemyIds: bigint[] = []; // maps local enemy index → server enemy ID
 let serverLootMap: Map<string, {id: bigint, x: number, y: number, itemDataJson: string, rarity: string}> = new Map();
 
@@ -723,8 +743,10 @@ export function syncEnemyFromServer(enemy: {
   roomIndex: number, enemyType: string, aiState: string, stateTimer: number,
   targetX: number, targetY: number, facingAngle: number, packId: bigint | null
 }) {
-  // Only process enemies for the current room
-  if (enemy.roomIndex !== currentRoom) return;
+  // Only process enemies for the current room (treat undefined as matching any room during init)
+  if (currentRoom !== undefined && enemy.roomIndex !== currentRoom) {
+    return;
+  }
 
   const key = enemy.id.toString();
   const existing = serverEnemyStates.get(key);
@@ -1206,6 +1228,10 @@ function init(){
   document.getElementById('btn-attack').addEventListener('click',doAttack);
   document.getElementById('btn-dash').addEventListener('touchstart',e=>{e.preventDefault();doDash();});
   document.getElementById('btn-dash').addEventListener('click',doDash);
+
+  // Emote button - long press for wheel, tap for quick chat
+  setupEmoteButton();
+  setupChatInput();
   document.getElementById('btn-enter-dungeon').addEventListener('click',enterDungeon);
   document.getElementById('bag-btn').addEventListener('click',openInventory);
   document.getElementById('stats-btn').addEventListener('click',openStats);
@@ -1759,6 +1785,9 @@ const keysPressed: Set<string> = new Set();
 
 function setupKeyboard() {
   window.addEventListener('keydown', e => {
+    // Don't capture keys if chat input is focused
+    if (chatInputOpen) return;
+
     const key = e.key.toLowerCase();
     if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
       keysPressed.add(key);
@@ -1767,6 +1796,15 @@ function setupKeyboard() {
     // Space for attack, Shift for dash
     if (key === ' ' || key === 'spacebar') { doAttack(); e.preventDefault(); }
     if (key === 'shift') { doDash(); e.preventDefault(); }
+    // Enter to open chat (desktop)
+    if (key === 'enter' && gameStarted && !gameOver && !gameDead && !emoteWheelOpen) {
+      openChatInput();
+      e.preventDefault();
+    }
+    // Escape to close emote wheel or chat
+    if (key === 'escape') {
+      if (emoteWheelOpen) closeEmoteWheel();
+    }
   });
   window.addEventListener('keyup', e => {
     keysPressed.delete(e.key.toLowerCase());
@@ -2134,6 +2172,9 @@ function update(dt){
 
   // Server-authoritative enemy interpolation
   updateServerEnemyInterpolation();
+
+  // Update/expire player messages
+  updateMessages();
 
   // Local enemies array kept for legacy compatibility but not used for AI
   enemies.forEach(e=>{
@@ -2968,7 +3009,24 @@ function draw(){
     ctx.fillStyle=opColor.light;ctx.font='bold 10px system-ui';ctx.textAlign='center';ctx.textBaseline='bottom';
     ctx.fillText(`${op.name} Lv${op.level}`, 0, -opRadius-4);
     ctx.restore();
+
+    // Speech bubble for this player
+    const opMsg = activeMessages.get(id);
+    if (opMsg) {
+      drawSpeechBubble(op.x, op.y, opMsg.content, opMsg.messageType === 'emote');
+    }
   });
+
+  // Speech bubble for local player
+  if (player) {
+    const myIdentity = (window as any).__spacetimeIdentity;
+    if (myIdentity) {
+      const myMsg = activeMessages.get(myIdentity);
+      if (myMsg) {
+        drawSpeechBubble(player.x, player.y, myMsg.content, myMsg.messageType === 'emote');
+      }
+    }
+  }
 
   // Full gear sparkle particles
   sparkleParticles.forEach(s=>{
@@ -3021,6 +3079,67 @@ function drawMinimap(){
     if(i===currentRoom){mc.fillStyle='#fbbf24';mc.fillRect(rx+6,ry+3,4,6);}
     if(dungeonRooms[i].isBoss){mc.fillStyle='#ef4444';mc.fillRect(rx+2,ry+2,3,3);}
   }
+}
+
+// ─── SPEECH BUBBLE DRAWING ───
+function drawSpeechBubble(x: number, y: number, text: string, isEmote: boolean) {
+  ctx.save();
+
+  // Measure text
+  ctx.font = isEmote ? 'bold 14px system-ui' : '12px system-ui';
+  const metrics = ctx.measureText(text);
+  const textWidth = Math.min(metrics.width, 120);
+  const padding = 8;
+  const bubbleWidth = textWidth + padding * 2;
+  const bubbleHeight = isEmote ? 28 : 24;
+  const tailHeight = 8;
+  const cornerRadius = 8;
+
+  // Position bubble above player
+  const bubbleX = x - bubbleWidth / 2;
+  const bubbleY = y - 50 - bubbleHeight - tailHeight;
+
+  // Draw bubble background
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+  ctx.beginPath();
+  ctx.moveTo(bubbleX + cornerRadius, bubbleY);
+  ctx.lineTo(bubbleX + bubbleWidth - cornerRadius, bubbleY);
+  ctx.quadraticCurveTo(bubbleX + bubbleWidth, bubbleY, bubbleX + bubbleWidth, bubbleY + cornerRadius);
+  ctx.lineTo(bubbleX + bubbleWidth, bubbleY + bubbleHeight - cornerRadius);
+  ctx.quadraticCurveTo(bubbleX + bubbleWidth, bubbleY + bubbleHeight, bubbleX + bubbleWidth - cornerRadius, bubbleY + bubbleHeight);
+  ctx.lineTo(bubbleX + bubbleWidth / 2 + 6, bubbleY + bubbleHeight);
+  // Tail
+  ctx.lineTo(bubbleX + bubbleWidth / 2, bubbleY + bubbleHeight + tailHeight);
+  ctx.lineTo(bubbleX + bubbleWidth / 2 - 6, bubbleY + bubbleHeight);
+  ctx.lineTo(bubbleX + cornerRadius, bubbleY + bubbleHeight);
+  ctx.quadraticCurveTo(bubbleX, bubbleY + bubbleHeight, bubbleX, bubbleY + bubbleHeight - cornerRadius);
+  ctx.lineTo(bubbleX, bubbleY + cornerRadius);
+  ctx.quadraticCurveTo(bubbleX, bubbleY, bubbleX + cornerRadius, bubbleY);
+  ctx.closePath();
+  ctx.fill();
+
+  // Draw bubble border
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.2)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // Draw text
+  ctx.fillStyle = '#1a1a2e';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, x, bubbleY + bubbleHeight / 2, 120);
+
+  ctx.restore();
+}
+
+// Update and expire messages
+function updateMessages() {
+  const now = Date.now();
+  activeMessages.forEach((msg, identity) => {
+    if (now >= msg.expiresAt) {
+      activeMessages.delete(identity);
+    }
+  });
 }
 
 // ─── LOOP ───
@@ -3196,6 +3315,148 @@ export function getEquippedIcons(): { weapon: string, armor: string, accessory: 
     armor: (equipped.armor as any)?.icon || '',
     accessory: (equipped.accessory as any)?.icon || '',
   };
+}
+
+// ─── EMOTE WHEEL & CHAT INPUT SETUP ───
+function setupEmoteButton() {
+  const btn = document.getElementById('btn-emote');
+  const wheel = document.getElementById('emote-wheel');
+  if (!btn || !wheel) return;
+
+  // Long press to open wheel
+  const startHold = (e: Event) => {
+    e.preventDefault();
+    emoteButtonHoldTimer = window.setTimeout(() => {
+      openEmoteWheel();
+    }, EMOTE_HOLD_THRESHOLD);
+  };
+
+  const endHold = (e: Event) => {
+    e.preventDefault();
+    if (emoteButtonHoldTimer !== null) {
+      clearTimeout(emoteButtonHoldTimer);
+      // Short tap - open chat input instead
+      if (!emoteWheelOpen) {
+        openChatInput();
+      }
+      emoteButtonHoldTimer = null;
+    }
+  };
+
+  btn.addEventListener('touchstart', startHold);
+  btn.addEventListener('touchend', endHold);
+  btn.addEventListener('touchcancel', endHold);
+  btn.addEventListener('mousedown', startHold);
+  btn.addEventListener('mouseup', endHold);
+  btn.addEventListener('mouseleave', () => {
+    if (emoteButtonHoldTimer !== null) {
+      clearTimeout(emoteButtonHoldTimer);
+      emoteButtonHoldTimer = null;
+    }
+  });
+
+  // Emote wheel option clicks
+  wheel.querySelectorAll('.emote-option').forEach(opt => {
+    opt.addEventListener('click', (e) => {
+      e.preventDefault();
+      const emote = (opt as HTMLElement).dataset.emote;
+      if (emote) {
+        callbacks.onSendEmote?.(emote);
+      }
+      closeEmoteWheel();
+    });
+    opt.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      const emote = (opt as HTMLElement).dataset.emote;
+      if (emote) {
+        callbacks.onSendEmote?.(emote);
+      }
+      closeEmoteWheel();
+    });
+  });
+
+  // Close wheel when clicking outside
+  wheel.addEventListener('click', (e) => {
+    if (e.target === wheel) {
+      closeEmoteWheel();
+    }
+  });
+}
+
+function openEmoteWheel() {
+  const wheel = document.getElementById('emote-wheel');
+  if (!wheel || !gameStarted || gameOver || gameDead) return;
+  emoteWheelOpen = true;
+  wheel.style.display = 'block';
+}
+
+function closeEmoteWheel() {
+  const wheel = document.getElementById('emote-wheel');
+  if (wheel) wheel.style.display = 'none';
+  emoteWheelOpen = false;
+}
+
+function setupChatInput() {
+  const overlay = document.getElementById('chat-input-overlay');
+  const input = document.getElementById('chat-input') as HTMLInputElement;
+  if (!overlay || !input) return;
+
+  // Close on click outside
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) {
+      closeChatInput();
+    }
+  });
+
+  // Send on Enter, close on Escape
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const text = input.value.trim();
+      if (text) {
+        callbacks.onSendChat?.(text);
+      }
+      closeChatInput();
+    } else if (e.key === 'Escape') {
+      closeChatInput();
+    }
+  });
+}
+
+function openChatInput() {
+  const overlay = document.getElementById('chat-input-overlay');
+  const input = document.getElementById('chat-input') as HTMLInputElement;
+  if (!overlay || !input || !gameStarted || gameOver || gameDead) return;
+  chatInputOpen = true;
+  overlay.style.display = 'flex';
+  input.value = '';
+  input.focus();
+}
+
+function closeChatInput() {
+  const overlay = document.getElementById('chat-input-overlay');
+  const input = document.getElementById('chat-input') as HTMLInputElement;
+  if (overlay) overlay.style.display = 'none';
+  if (input) input.blur();
+  chatInputOpen = false;
+}
+
+/** Receive a message from another player (called from main.ts) */
+export function receiveMessage(
+  senderIdentity: string,
+  senderName: string,
+  messageType: string,
+  content: string
+) {
+  const now = Date.now();
+  activeMessages.set(senderIdentity, {
+    senderIdentity,
+    senderName,
+    messageType,
+    content,
+    createdAt: now,
+    expiresAt: now + MESSAGE_DURATION,
+  });
 }
 
 export function initGame() {

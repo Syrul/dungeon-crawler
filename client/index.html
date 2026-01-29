@@ -151,6 +151,28 @@ canvas{display:block;width:100%;height:100%}
 #levelup-stats{color:#e2e8f0;font-size:16px;font-weight:700;text-shadow:0 2px 8px rgba(0,0,0,0.8);opacity:0;margin-top:12px;text-align:center;line-height:1.8}
 @keyframes levelupScale{0%{transform:scale(0.3);opacity:0}20%{transform:scale(1.3);opacity:1}40%{transform:scale(1);opacity:1}80%{transform:scale(1);opacity:1}100%{transform:scale(1.1);opacity:0}}
 @keyframes levelupStatsFade{0%{opacity:0;transform:translateY(20px)}20%{opacity:1;transform:translateY(0)}80%{opacity:1}100%{opacity:0}}
+
+/* Emote wheel */
+#emote-wheel{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:200px;height:200px;pointer-events:auto;z-index:250}
+.emote-option{position:absolute;width:50px;height:50px;background:rgba(0,0,0,0.85);border:2px solid rgba(255,255,255,0.3);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:24px;cursor:pointer;transition:transform 0.15s,border-color 0.15s;-webkit-tap-highlight-color:transparent}
+.emote-option:hover,.emote-option:active{transform:scale(1.2);border-color:#fbbf24}
+.emote-option:nth-child(1){top:0;left:50%;transform:translateX(-50%)}
+.emote-option:nth-child(2){top:15%;right:8%}
+.emote-option:nth-child(3){top:50%;right:0;transform:translateY(-50%)}
+.emote-option:nth-child(4){bottom:15%;right:8%}
+.emote-option:nth-child(5){bottom:0;left:50%;transform:translateX(-50%)}
+.emote-option:nth-child(6){bottom:15%;left:8%}
+.emote-option:nth-child(7){top:50%;left:0;transform:translateY(-50%)}
+.emote-option:nth-child(8){top:15%;left:8%}
+#emote-wheel::before{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:60px;height:60px;background:rgba(0,0,0,0.6);border:2px solid rgba(255,255,255,0.2);border-radius:50%;z-index:-1}
+
+/* Chat input overlay */
+#chat-input-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:260;pointer-events:auto}
+#chat-input{width:280px;max-width:80%;padding:14px 18px;font-size:16px;font-family:inherit;background:rgba(20,20,40,0.95);border:2px solid #fbbf24;border-radius:12px;color:#fff;outline:none}
+#chat-input::placeholder{color:#94a3b8}
+
+/* Emote button style (smaller than attack/dash) */
+#btn-emote{background:radial-gradient(circle,#6366f1,#4f46e5);width:52px;height:52px}
 </style>
 </head>
 <body>
@@ -175,6 +197,7 @@ canvas{display:block;width:100%;height:100%}
   </div>
   <div id="joystick-zone"><div id="joystick-base"></div><div id="joystick-thumb"></div></div>
   <div id="ability-zone">
+    <div class="ability-btn" id="btn-emote"><span>💬</span></div>
     <div class="ability-btn" id="btn-attack"><span>⚔</span><div class="cd-overlay"></div><span class="cd-text"></span></div>
     <div class="ability-btn" id="btn-dash"><span>💨</span><div class="cd-overlay"></div><span class="cd-text"></span></div>
   </div>
@@ -212,6 +235,23 @@ canvas{display:block;width:100%;height:100%}
   <div id="stats-close">✕</div>
   <h2>📊 Stats</h2>
   <div id="stats-content"></div>
+</div>
+
+<!-- Emote Wheel Overlay -->
+<div id="emote-wheel" style="display:none">
+  <div class="emote-option" data-emote="Help!">🆘</div>
+  <div class="emote-option" data-emote="👍">👍</div>
+  <div class="emote-option" data-emote="Thanks!">🙏</div>
+  <div class="emote-option" data-emote="❤️">❤️</div>
+  <div class="emote-option" data-emote="Go!">🏃</div>
+  <div class="emote-option" data-emote="👎">👎</div>
+  <div class="emote-option" data-emote="Here!">📍</div>
+  <div class="emote-option" data-emote="❓">❓</div>
+</div>
+
+<!-- Chat Input Overlay -->
+<div id="chat-input-overlay" style="display:none">
+  <input type="text" id="chat-input" placeholder="Type a message..." maxlength="100" autocomplete="off">
 </div>
 
 <div id="connection-status" style="position:absolute;top:6px;right:6px;width:10px;height:10px;border-radius:50%;background:#ef4444;z-index:999;pointer-events:none;opacity:0.8"></div>

@@ -3,7 +3,7 @@ import { DbConnection, DbConnectionBuilder } from './module_bindings';
 import type { ConnectionState } from './types';
 
 const SPACETIMEDB_URI = 'wss://maincloud.spacetimedb.com';
-const DB_NAME = 'dungeon-crawler-syrul';
+const DB_NAME = 'dungeon-crawler-coop';
 // Token key includes URI to avoid using localhost token on maincloud
 const TOKEN_KEY = `spacetimedb_token_${DB_NAME}`;
 
@@ -31,8 +31,12 @@ class SpacetimeClient {
   }
 
   async connect(): Promise<boolean> {
+    return this._connectWithRetry(true);
+  }
+
+  private async _connectWithRetry(useToken: boolean): Promise<boolean> {
     try {
-      const token = sessionStorage.getItem(TOKEN_KEY) || undefined;
+      const token = useToken ? (sessionStorage.getItem(TOKEN_KEY) || undefined) : undefined;
 
       const conn = await new Promise<DbConnection>((resolve, reject) => {
         const timeout = setTimeout(() => reject(new Error('Connection timeout')), 5000);
@@ -71,11 +75,17 @@ class SpacetimeClient {
 
       this.conn = conn;
 
-      // Subscribe to all relevant tables
-      this.subscribeAll();
+      // NOTE: Don't subscribe here - wait for listeners to be registered first
+      // subscribeAll() will be called explicitly via startSubscription()
 
       return true;
     } catch (err) {
+      // If we used a token and got an error, clear it and retry without token
+      if (useToken && sessionStorage.getItem(TOKEN_KEY)) {
+        console.warn('[SpacetimeDB] Token rejected, clearing and retrying...');
+        sessionStorage.removeItem(TOKEN_KEY);
+        return this._connectWithRetry(false);
+      }
       console.warn('[SpacetimeDB] Failed to connect:', err);
       this._state = { connected: false };
       this.notify();
@@ -83,7 +93,8 @@ class SpacetimeClient {
     }
   }
 
-  private subscribeAll() {
+  /** Start subscriptions - call this AFTER registering all listeners */
+  startSubscription() {
     if (!this.conn) return;
 
     try {
@@ -96,6 +107,7 @@ class SpacetimeClient {
           'SELECT * FROM loot_drop',
           'SELECT * FROM inventory_item',
           'SELECT * FROM dungeon_participant',
+          'SELECT * FROM player_message',
         ]);
       console.log('[SpacetimeDB] Subscribed to tables');
     } catch (err) {
@@ -143,6 +155,25 @@ class SpacetimeClient {
   completeDungeon(dungeonId: bigint, clientGold?: bigint, clientXp?: bigint) {
     if (!this.conn) return;
     this.conn.reducers.completeDungeon({ dungeonId, clientGold: clientGold ?? null, clientXp: clientXp ?? null });
+  }
+
+  sendEmote(dungeonId: bigint, emoteContent: string) {
+    if (!this.conn) return;
+    this.conn.reducers.sendEmote({ dungeonId, emoteContent });
+  }
+
+  sendChat(dungeonId: bigint, text: string) {
+    if (!this.conn) return;
+    this.conn.reducers.sendChat({ dungeonId, text });
+  }
+
+  async getIdentity(): Promise<string | null> {
+    if (!this.conn) return null;
+    try {
+      return this.conn.identity.toHexString();
+    } catch (e) {
+      return null;
+    }
   }
 
   /** Read current player data from subscribed tables */
@@ -396,6 +427,35 @@ class SpacetimeClient {
       });
     } catch (e) {
       console.warn('[SpacetimeDB] Failed to register dungeon update listener:', e);
+    }
+  }
+
+  /** Listen for player messages (emotes and chat) */
+  onMessageReceived(cb: (message: {
+    id: bigint,
+    dungeonId: bigint,
+    senderIdentity: string,
+    senderName: string,
+    messageType: string,
+    content: string,
+    createdAt: number
+  }) => void) {
+    if (!this.conn) return;
+    try {
+      const mapRow = (row: any) => ({
+        id: row.id,
+        dungeonId: row.dungeonId,
+        senderIdentity: row.senderIdentity.toHexString(),
+        senderName: row.senderName,
+        messageType: row.messageType,
+        content: row.content,
+        createdAt: Number(row.createdAt),
+      });
+      (this.conn.db as any).playerMessage.onInsert((_ctx: any, row: any) => {
+        cb(mapRow(row));
+      });
+    } catch (e) {
+      console.warn('[SpacetimeDB] Failed to register message listener:', e);
     }
   }
 

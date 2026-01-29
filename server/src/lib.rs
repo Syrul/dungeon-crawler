@@ -126,6 +126,20 @@ pub struct EnemyTickSchedule {
     scheduled_at: ScheduleAt,
 }
 
+/// Player messages (emotes and chat) for co-op communication
+#[table(name = player_message, public)]
+pub struct PlayerMessage {
+    #[primary_key]
+    #[auto_inc]
+    pub id: u64,
+    pub dungeon_id: u64,
+    pub sender_identity: Identity,
+    pub sender_name: String,
+    pub message_type: String,  // "emote" or "chat"
+    pub content: String,
+    pub created_at: u64,
+}
+
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
 const ATTACK_RANGE: f32 = 100.0;
@@ -753,6 +767,75 @@ pub fn discard_item(ctx: &ReducerContext, item_id: u64) -> Result<(), String> {
         return Err("Not your item".into());
     }
     ctx.db.inventory_item().id().delete(item_id);
+    Ok(())
+}
+
+// ─── Player Communication Reducers ──────────────────────────────────────────
+
+/// Send an emote message (quick phrase/emoji)
+#[reducer]
+pub fn send_emote(ctx: &ReducerContext, dungeon_id: u64, emote_content: String) -> Result<(), String> {
+    // Validate player is in dungeon
+    let is_participant = ctx.db.dungeon_participant().iter()
+        .any(|p| p.dungeon_id == dungeon_id && p.player_identity == ctx.sender);
+    if !is_participant {
+        return Err("Not a participant in this dungeon".into());
+    }
+
+    // Get player name
+    let player = ctx.db.player().identity().find(ctx.sender)
+        .ok_or("Player not found")?;
+
+    // Insert message
+    let timestamp = ctx.timestamp.to_duration_since_unix_epoch()
+        .unwrap_or_default().as_millis() as u64;
+
+    ctx.db.player_message().insert(PlayerMessage {
+        id: 0,
+        dungeon_id,
+        sender_identity: ctx.sender,
+        sender_name: player.name,
+        message_type: "emote".to_string(),
+        content: emote_content,
+        created_at: timestamp,
+    });
+
+    Ok(())
+}
+
+/// Send a chat message (typed text)
+#[reducer]
+pub fn send_chat(ctx: &ReducerContext, dungeon_id: u64, text: String) -> Result<(), String> {
+    // Validate player is in dungeon
+    let is_participant = ctx.db.dungeon_participant().iter()
+        .any(|p| p.dungeon_id == dungeon_id && p.player_identity == ctx.sender);
+    if !is_participant {
+        return Err("Not a participant in this dungeon".into());
+    }
+
+    // Limit message length
+    if text.len() > 100 {
+        return Err("Message too long (max 100 characters)".into());
+    }
+
+    // Get player name
+    let player = ctx.db.player().identity().find(ctx.sender)
+        .ok_or("Player not found")?;
+
+    // Insert message
+    let timestamp = ctx.timestamp.to_duration_since_unix_epoch()
+        .unwrap_or_default().as_millis() as u64;
+
+    ctx.db.player_message().insert(PlayerMessage {
+        id: 0,
+        dungeon_id,
+        sender_identity: ctx.sender,
+        sender_name: player.name,
+        message_type: "chat".to_string(),
+        content: text,
+        created_at: timestamp,
+    });
+
     Ok(())
 }
 
@@ -1394,5 +1477,14 @@ fn cleanup_dungeon(ctx: &ReducerContext, dungeon_id: u64) {
         .collect();
     for identity in positions {
         ctx.db.player_position().identity().delete(identity);
+    }
+
+    // Delete player messages for this dungeon
+    let messages: Vec<u64> = ctx.db.player_message().iter()
+        .filter(|m| m.dungeon_id == dungeon_id)
+        .map(|m| m.id)
+        .collect();
+    for id in messages {
+        ctx.db.player_message().id().delete(id);
     }
 }

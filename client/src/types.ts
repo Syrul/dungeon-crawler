@@ -17,6 +17,10 @@ export interface GameCallbacks {
   onStartDungeon?: () => void;
   // Called by game when dungeon is completed (boss killed)
   onCompleteDungeon?: () => void;
+  // Called by game when player sends an emote
+  onSendEmote?: (content: string) => void;
+  // Called by game when player sends a chat message
+  onSendChat?: (text: string) => void;
 }
 
 export interface ConnectionState {
