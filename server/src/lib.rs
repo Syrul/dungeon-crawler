@@ -218,6 +218,7 @@ pub struct OpenWorldInstance {
 }
 
 /// Enemy in Open World (fixed spawn points with respawn timers)
+#[derive(Clone)]
 #[table(name = open_world_enemy, public)]
 pub struct OpenWorldEnemy {
     #[primary_key]
@@ -2790,11 +2791,88 @@ pub fn tick_matchmaking(ctx: &ReducerContext, _arg: MatchmakingTickSchedule) {
     // Note: ScheduleAt::Interval auto-repeats
 }
 
-/// Open World tick - handles respawns
+/// Open World tick - handles enemy AI and respawns
 #[reducer]
 pub fn tick_open_world(ctx: &ReducerContext, _arg: OpenWorldTickSchedule) {
     let now = ctx.timestamp.to_duration_since_unix_epoch()
         .unwrap_or_default().as_millis() as u64;
+    let dt = AI_DT; // 50ms tick interval, same as dungeon enemies
+
+    // Collect all open world players for AI targeting
+    let players: Vec<OpenWorldPlayer> = ctx.db.open_world_player().iter().collect();
+
+    // Process alive enemies - chase and attack players
+    for enemy in ctx.db.open_world_enemy().iter() {
+        if !enemy.is_alive {
+            continue;
+        }
+
+        let mut e = enemy.clone();
+
+        // Update state timer (attack cooldown)
+        if e.state_timer > 0.0 {
+            e.state_timer -= dt;
+        }
+
+        // Find nearest player in the same room
+        let target = players.iter()
+            .filter(|p| p.instance_id == e.instance_id && p.room_x == e.room_x && p.room_y == e.room_y)
+            .min_by(|a, b| {
+                let da = (a.x - e.x).powi(2) + (a.y - e.y).powi(2);
+                let db = (b.x - e.x).powi(2) + (b.y - e.y).powi(2);
+                da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+            });
+
+        if let Some(target) = target {
+            let dx = target.x - e.x;
+            let dy = target.y - e.y;
+            let dist = (dx * dx + dy * dy).sqrt();
+
+            // Update facing angle toward target
+            e.facing_angle = dy.atan2(dx);
+
+            // Get enemy speed based on type (scaled by dt)
+            let base_speed = match e.enemy_type.as_str() {
+                "slime" => 40.0,
+                "skeleton" | "archer" => 55.0,
+                "wolf" => 70.0,
+                _ => 50.0,
+            };
+            let speed = base_speed * dt * 60.0; // Scale to 60fps equivalent
+
+            // Chase if not in attack range
+            let attack_range = 35.0;
+            if dist > attack_range {
+                let (nx, ny) = if dist > 0.1 { (dx / dist, dy / dist) } else { (0.0, 0.0) };
+                e.x += nx * speed;
+                e.y += ny * speed;
+                // Clamp to room bounds
+                e.x = e.x.clamp(20.0, ROOM_W - 20.0);
+                e.y = e.y.clamp(20.0, ROOM_H - 20.0);
+                e.target_x = target.x;
+                e.target_y = target.y;
+                e.ai_state = "chase".to_string();
+            } else {
+                // In attack range - deal damage if cooldown ready
+                if e.state_timer <= 0.0 {
+                    e.state_timer = 1.2; // Attack cooldown
+                    e.ai_state = "attack".to_string();
+
+                    // Deal damage to player
+                    if let Some(player) = ctx.db.player().identity().find(target.identity) {
+                        let damage = (e.atk - player.def / 2).max(1);
+                        let new_hp = player.hp - damage;
+                        ctx.db.player().identity().update(Player {
+                            hp: new_hp.max(0),
+                            ..player
+                        });
+                    }
+                }
+            }
+
+            ctx.db.open_world_enemy().id().update(e);
+        }
+    }
 
     // Respawn dead enemies whose timer has expired
     let dead_enemies: Vec<OpenWorldEnemy> = ctx.db.open_world_enemy().iter()
@@ -2831,7 +2909,7 @@ fn schedule_matchmaking_tick(ctx: &ReducerContext) {
 fn schedule_open_world_tick(ctx: &ReducerContext) {
     ctx.db.open_world_tick_schedule().insert(OpenWorldTickSchedule {
         scheduled_id: 0,
-        scheduled_at: ScheduleAt::Interval(TimeDuration::from_micros(1_000_000)), // 1 second
+        scheduled_at: ScheduleAt::Interval(TimeDuration::from_micros(50_000)), // 50ms = 20Hz for smooth enemy AI
     });
 }
 

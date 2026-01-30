@@ -1,7 +1,7 @@
 // main.ts — Entry point
 // Server-authoritative multiplayer with client interpolation
 
-import { initGame, setGameMode, setCallbacks, restoreFromServer, updateOtherPlayer, removeOtherPlayer, syncEnemyFromServer, removeServerEnemy, addServerLoot, removeServerLoot, syncRoom, getCurrentRoom, initServerEnemies, getServerEnemyIds, syncPlayerStats, clientToServerX, clientToServerY, getEquippedIcons, receiveMessage, setPlayerClass, getPlayerClass, returnToHub, onMatchFound, getActiveGameMode, getOpenWorldRoom } from './game';
+import { initGame, setGameMode, setCallbacks, restoreFromServer, updateOtherPlayer, removeOtherPlayer, syncEnemyFromServer, removeServerEnemy, addServerLoot, removeServerLoot, syncRoom, getCurrentRoom, initServerEnemies, getServerEnemyIds, syncPlayerStats, clientToServerX, clientToServerY, getEquippedIcons, receiveMessage, setPlayerClass, getPlayerClass, returnToHub, onMatchFound, getActiveGameMode, getOpenWorldRoom, pauseGame, initOpenWorldServerEnemies, syncOpenWorldEnemyFromServer, removeOpenWorldServerEnemy, setOpenWorldInstanceId, clearOpenWorldServerEnemies } from './game';
 import { spacetimeClient } from './spacetime';
 import type { PlayerClass, ActiveGameMode } from './types';
 import { CLASS_STATS } from './types';
@@ -172,6 +172,34 @@ async function main() {
       }
     });
 
+    // Open World: listen for enemy updates
+    spacetimeClient.onOpenWorldEnemyUpdate((enemy) => {
+      if (getActiveGameMode() !== 'open_world') return;
+      const room = getOpenWorldRoom();
+      if (enemy.roomX !== room.x || enemy.roomY !== room.y) return;
+      syncOpenWorldEnemyFromServer(enemy);
+    }, (id) => {
+      removeOpenWorldServerEnemy(id);
+    });
+
+    // Open World: listen for other player updates
+    spacetimeClient.onOpenWorldPlayerUpdate((player) => {
+      if (getActiveGameMode() !== 'open_world') return;
+      const room = getOpenWorldRoom();
+      if (player.roomX !== room.x || player.roomY !== room.y) {
+        // Player left our room
+        removeOtherPlayer(player.identity);
+        return;
+      }
+      updateOtherPlayer(
+        player.identity, player.x, player.y, player.facingX, player.facingY,
+        player.name, player.level, player.playerClass,
+        player.weaponIcon, player.armorIcon, player.accessoryIcon
+      );
+    }, (identity) => {
+      removeOtherPlayer(identity);
+    });
+
     // Start subscription AFTER all listeners are registered
     spacetimeClient.startSubscription();
 
@@ -285,7 +313,13 @@ async function main() {
         spacetimeClient.enterOpenWorld().then(instanceId => {
           if (instanceId) {
             openWorldInstanceId = instanceId;
+            setOpenWorldInstanceId(instanceId);
             console.log('[Main] Entered Open World instance:', instanceId);
+            // Query and initialize enemies for the starting room (5, 5)
+            const room = getOpenWorldRoom();
+            const serverEnemies = spacetimeClient.getOpenWorldEnemiesForRoom(instanceId, room.x, room.y);
+            initOpenWorldServerEnemies(serverEnemies);
+            console.log('[Main] Initialized', serverEnemies.length, 'open world enemies for room', room.x, room.y);
           }
         }).catch(err => {
           console.error('[Main] Failed to enter Open World:', err);
@@ -294,6 +328,8 @@ async function main() {
       onLeaveOpenWorld: () => {
         spacetimeClient.leaveOpenWorld().then(() => {
           openWorldInstanceId = null;
+          setOpenWorldInstanceId(null);
+          clearOpenWorldServerEnemies();
           console.log('[Main] Left Open World');
         }).catch(err => {
           console.error('[Main] Failed to leave Open World:', err);
@@ -308,6 +344,13 @@ async function main() {
       },
       onOpenWorldAttack: (enemyId) => {
         spacetimeClient.attackOpenWorld(enemyId);
+      },
+      onOpenWorldRoomChange: (roomX, roomY) => {
+        if (openWorldInstanceId) {
+          const serverEnemies = spacetimeClient.getOpenWorldEnemiesForRoom(openWorldInstanceId, roomX, roomY);
+          initOpenWorldServerEnemies(serverEnemies);
+          console.log('[Main] Room change: initialized', serverEnemies.length, 'enemies for room', roomX, roomY);
+        }
       },
       onQueueDungeon: (tier, difficulty) => {
         spacetimeClient.queueDungeon(tier, difficulty);
@@ -340,15 +383,27 @@ async function main() {
         activeDungeonId = null;
         activeRaidId = null;
         openWorldInstanceId = null;
+        setOpenWorldInstanceId(null);
+        clearOpenWorldServerEnemies();
       },
     });
 
     // Listen for connection state changes
     spacetimeClient.onChange((state) => {
       setStatusDot(state.connected);
+      const reconnectingOverlay = document.getElementById('reconnecting-overlay');
       if (!state.connected) {
-        console.log('[Main] Lost connection to server');
-        // Show reconnecting message - game requires server connection
+        console.log('[Main] Lost connection to server - pausing game');
+        pauseGame(true);
+        if (reconnectingOverlay) {
+          reconnectingOverlay.style.display = 'flex';
+        }
+      } else {
+        console.log('[Main] Connection restored - resuming game');
+        pauseGame(false);
+        if (reconnectingOverlay) {
+          reconnectingOverlay.style.display = 'none';
+        }
       }
     });
 
@@ -384,8 +439,16 @@ async function main() {
   } else {
     console.error('[Main] Failed to connect to SpacetimeDB server');
     setStatusDot(false);
-    // Show connection required message
-    alert('Could not connect to game server. Please ensure SpacetimeDB is running.');
+    // Show connection failed overlay
+    const failedOverlay = document.getElementById('connection-failed-overlay');
+    if (failedOverlay) {
+      failedOverlay.style.display = 'flex';
+    }
+    // Hide start screen if visible
+    const startScreen = document.getElementById('start-screen');
+    if (startScreen) {
+      startScreen.style.display = 'none';
+    }
     return;
   }
 

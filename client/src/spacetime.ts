@@ -2,10 +2,12 @@
 import { DbConnection, DbConnectionBuilder } from './module_bindings';
 import type { ConnectionState } from './types';
 
-const SPACETIMEDB_URI = 'wss://maincloud.spacetimedb.com';
+// Use local server for development, maincloud for production
+const IS_LOCAL_DEV = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+const SPACETIMEDB_URI = IS_LOCAL_DEV ? 'ws://localhost:3000' : 'wss://maincloud.spacetimedb.com';
 const DB_NAME = 'dungeon-crawler-dev';
 // Token key includes URI to avoid using localhost token on maincloud
-const TOKEN_KEY = `spacetimedb_token_${DB_NAME}`;
+const TOKEN_KEY = `spacetimedb_token_${IS_LOCAL_DEV ? 'local' : 'cloud'}_${DB_NAME}`;
 
 type StateChangeCallback = (state: ConnectionState) => void;
 
@@ -694,6 +696,204 @@ class SpacetimeClient {
       console.warn('[SpacetimeDB] Failed to get active dungeon:', e);
     }
     return null;
+  }
+
+  // ─── Open World Enemy Listeners ───
+
+  /** Listen for open world enemy updates */
+  onOpenWorldEnemyUpdate(cb: (enemy: {
+    id: bigint,
+    instanceId: bigint,
+    roomX: number,
+    roomY: number,
+    x: number,
+    y: number,
+    hp: number,
+    maxHp: number,
+    isAlive: boolean,
+    enemyType: string,
+  }) => void, onDelete?: (id: bigint) => void) {
+    if (!this.conn) return;
+    try {
+      const mapRow = (row: any) => ({
+        id: row.id,
+        instanceId: row.instanceId,
+        roomX: row.roomX,
+        roomY: row.roomY,
+        x: row.x,
+        y: row.y,
+        hp: row.hp,
+        maxHp: row.maxHp,
+        isAlive: row.isAlive,
+        enemyType: row.enemyType,
+      });
+      (this.conn.db as any).openWorldEnemy.onInsert((_ctx: any, row: any) => {
+        cb(mapRow(row));
+      });
+      (this.conn.db as any).openWorldEnemy.onUpdate((_ctx: any, _old: any, row: any) => {
+        cb(mapRow(row));
+      });
+      if (onDelete) {
+        (this.conn.db as any).openWorldEnemy.onDelete((_ctx: any, row: any) => {
+          onDelete(row.id);
+        });
+      }
+    } catch (e) {
+      console.warn('[SpacetimeDB] Failed to register open world enemy listener:', e);
+    }
+  }
+
+  /** Listen for open world player position updates */
+  onOpenWorldPlayerUpdate(cb: (player: {
+    identity: string,
+    instanceId: bigint,
+    roomX: number,
+    roomY: number,
+    x: number,
+    y: number,
+    facingX: number,
+    facingY: number,
+    name: string,
+    level: number,
+    playerClass: string,
+    weaponIcon: string,
+    armorIcon: string,
+    accessoryIcon: string,
+  }) => void, onDelete?: (identity: string) => void) {
+    if (!this.conn) return;
+    try {
+      const self = this._state.identity;
+      const mapRow = (row: any) => ({
+        identity: row.identity.toHexString(),
+        instanceId: row.instanceId,
+        roomX: row.roomX,
+        roomY: row.roomY,
+        x: row.x,
+        y: row.y,
+        facingX: row.facingX,
+        facingY: row.facingY,
+        name: row.name || 'Player',
+        level: row.level || 1,
+        playerClass: row.playerClass || 'healer',
+        weaponIcon: row.weaponIcon || '',
+        armorIcon: row.armorIcon || '',
+        accessoryIcon: row.accessoryIcon || '',
+      });
+      (this.conn.db as any).openWorldPlayer.onInsert((_ctx: any, row: any) => {
+        const p = mapRow(row);
+        if (p.identity !== self) cb(p);
+      });
+      (this.conn.db as any).openWorldPlayer.onUpdate((_ctx: any, _old: any, row: any) => {
+        const p = mapRow(row);
+        if (p.identity !== self) cb(p);
+      });
+      if (onDelete) {
+        (this.conn.db as any).openWorldPlayer.onDelete((_ctx: any, row: any) => {
+          const id = row.identity.toHexString();
+          if (id !== self) onDelete(id);
+        });
+      }
+    } catch (e) {
+      console.warn('[SpacetimeDB] Failed to register open world player listener:', e);
+    }
+  }
+
+  /** Get enemies for a specific room in open world */
+  getOpenWorldEnemiesForRoom(instanceId: bigint, roomX: number, roomY: number): Array<{
+    id: bigint,
+    x: number,
+    y: number,
+    hp: number,
+    maxHp: number,
+    isAlive: boolean,
+    enemyType: string,
+  }> {
+    if (!this.conn) return [];
+    try {
+      const result: Array<{
+        id: bigint,
+        x: number,
+        y: number,
+        hp: number,
+        maxHp: number,
+        isAlive: boolean,
+        enemyType: string,
+      }> = [];
+      const targetInstanceId = instanceId.toString();
+      for (const e of (this.conn.db as any).openWorldEnemy.iter()) {
+        if (e.instanceId.toString() === targetInstanceId && e.roomX === roomX && e.roomY === roomY) {
+          result.push({
+            id: e.id,
+            x: e.x,
+            y: e.y,
+            hp: e.hp,
+            maxHp: e.maxHp,
+            isAlive: e.isAlive,
+            enemyType: e.enemyType,
+          });
+        }
+      }
+      result.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+      return result;
+    } catch (e) {
+      console.warn('[SpacetimeDB] Failed to get open world enemies for room:', e);
+      return [];
+    }
+  }
+
+  /** Get other players in the same open world room */
+  getOpenWorldPlayersInRoom(instanceId: bigint, roomX: number, roomY: number): Array<{
+    identity: string,
+    x: number,
+    y: number,
+    facingX: number,
+    facingY: number,
+    name: string,
+    level: number,
+    playerClass: string,
+    weaponIcon: string,
+    armorIcon: string,
+    accessoryIcon: string,
+  }> {
+    if (!this.conn || !this._state.identity) return [];
+    try {
+      const result: Array<{
+        identity: string,
+        x: number,
+        y: number,
+        facingX: number,
+        facingY: number,
+        name: string,
+        level: number,
+        playerClass: string,
+        weaponIcon: string,
+        armorIcon: string,
+        accessoryIcon: string,
+      }> = [];
+      const targetInstanceId = instanceId.toString();
+      for (const p of (this.conn.db as any).openWorldPlayer.iter()) {
+        const id = p.identity.toHexString();
+        if (id !== this._state.identity && p.instanceId.toString() === targetInstanceId && p.roomX === roomX && p.roomY === roomY) {
+          result.push({
+            identity: id,
+            x: p.x,
+            y: p.y,
+            facingX: p.facingX,
+            facingY: p.facingY,
+            name: p.name || 'Player',
+            level: p.level || 1,
+            playerClass: p.playerClass || 'healer',
+            weaponIcon: p.weaponIcon || '',
+            armorIcon: p.armorIcon || '',
+            accessoryIcon: p.accessoryIcon || '',
+          });
+        }
+      }
+      return result;
+    } catch (e) {
+      console.warn('[SpacetimeDB] Failed to get open world players in room:', e);
+      return [];
+    }
   }
 
   disconnect() {

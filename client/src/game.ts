@@ -19,6 +19,33 @@ let openWorldRoomX = 5;
 let openWorldRoomY = 5;
 let openWorldEnemies: Map<string, any> = new Map();
 let openWorldPlayers: Map<string, any> = new Map();
+let openWorldInstanceId: bigint | null = null;
+
+// Open World server enemy state (similar to dungeon EnemyRenderState)
+interface OpenWorldEnemyRenderState {
+  serverId: bigint;
+  x: number;
+  y: number;
+  serverX: number;
+  serverY: number;
+  prevX: number;
+  prevY: number;
+  hp: number;
+  maxHp: number;
+  isAlive: boolean;
+  enemyType: string;
+  lastUpdateTime: number;
+  hit: number;
+  color: string;
+  r: number;
+  knockX: number;
+  knockY: number;
+  // Additional fields for rendering compatibility with EnemyRenderState
+  aiState: string;
+  stateTimer: number;
+  facingAngle: number;
+}
+let openWorldServerEnemies: Map<string, OpenWorldEnemyRenderState> = new Map();
 
 // Queue state
 let inQueue = false;
@@ -33,6 +60,10 @@ export function setGameMode(mode: GameMode) {
 
 export function setCallbacks(cb: GameCallbacks) {
   callbacks = cb;
+}
+
+export function pauseGame(paused: boolean) {
+  gamePaused = paused;
 }
 
 // Discard functions for inventory management
@@ -761,6 +792,9 @@ interface EnemyRenderState {
   hit: number; // flash on damage
   color: string;
   r: number;
+  // Knockback (juice effect)
+  knockX: number;
+  knockY: number;
 }
 let serverEnemyStates: Map<string, EnemyRenderState> = new Map();
 
@@ -852,6 +886,8 @@ export function initServerEnemies(serverEnemies: Array<{
       hit: 0,
       color: visuals.color,
       r: visuals.r,
+      knockX: 0,
+      knockY: 0,
     });
     serverEnemyIds.push(e.id);
   }
@@ -883,6 +919,15 @@ export function syncEnemyFromServer(enemy: {
         val: existing.hp - enemy.hp,
         life: 0.8, vy: -60, color: '#fbbf24'
       });
+      // Knockback from player position (juice effect)
+      if (player) {
+        const dx = existing.x - player.x;
+        const dy = existing.y - player.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const knockStrength = 80;
+        existing.knockX = (dx / dist) * knockStrength;
+        existing.knockY = (dy / dist) * knockStrength;
+      }
     }
 
     // Check if enemy died
@@ -936,6 +981,8 @@ export function syncEnemyFromServer(enemy: {
       hit: 0,
       color: visuals.color,
       r: visuals.r,
+      knockX: 0,
+      knockY: 0,
     });
     if (!serverEnemyIds.includes(enemy.id)) {
       serverEnemyIds.push(enemy.id);
@@ -969,13 +1016,38 @@ function getInterpolatedEnemyPosition(state: EnemyRenderState): { x: number, y: 
 
 // Update interpolated positions (called every frame)
 function updateServerEnemyInterpolation() {
+  // Update dungeon enemies
   serverEnemyStates.forEach((state) => {
     if (!state.isAlive) return;
     const pos = getInterpolatedEnemyPosition(state);
-    state.x = pos.x;
-    state.y = pos.y;
+    // Apply knockback offset
+    state.x = pos.x + state.knockX;
+    state.y = pos.y + state.knockY;
+    // Decay knockback
+    state.knockX *= 0.9;
+    state.knockY *= 0.9;
+    // Clear negligible knockback
+    if (Math.abs(state.knockX) < 0.5) state.knockX = 0;
+    if (Math.abs(state.knockY) < 0.5) state.knockY = 0;
     // Decay hit flash
     if (state.hit > 0) state.hit -= 0.016; // ~60fps
+  });
+
+  // Update open world enemies
+  openWorldServerEnemies.forEach((state) => {
+    if (!state.isAlive) return;
+    // Simple interpolation for open world enemies
+    const elapsed = performance.now() - state.lastUpdateTime;
+    const t = Math.min(1, elapsed / SERVER_TICK_MS);
+    state.x = state.prevX + (state.serverX - state.prevX) * t + state.knockX;
+    state.y = state.prevY + (state.serverY - state.prevY) * t + state.knockY;
+    // Decay knockback
+    state.knockX *= 0.9;
+    state.knockY *= 0.9;
+    if (Math.abs(state.knockX) < 0.5) state.knockX = 0;
+    if (Math.abs(state.knockY) < 0.5) state.knockY = 0;
+    // Decay hit flash
+    if (state.hit > 0) state.hit -= 0.016;
   });
 }
 
@@ -1040,18 +1112,32 @@ export function addServerLoot(loot: {id: bigint, x: number, y: number, itemDataJ
                        loot.rarity === 'legendary' ? '#f97316' : '#fff';
   }
 
-  // Add to lootDrops for rendering
-  console.log('[Game] Adding loot at coords:', { x: clientX, y: clientY });
-  lootDrops.push({
-    x: clientX,
-    y: clientY,
+  // Add to lootDrops for rendering with bounce animation (juice effect)
+  const scatterX = (Math.random() - 0.5) * 30;
+  const scatterY = (Math.random() - 0.5) * 30;
+  const dropX = clientX + scatterX;
+  const dropY = clientY + scatterY;
+  console.log('[Game] Adding loot at coords:', { x: dropX, y: dropY });
+
+  const drop = {
+    x: dropX,
+    y: dropY - 20, // Start slightly above for bounce arc
     type: 'gear',
     gear,
     glow: 0,
     icon: gear.icon,
-    bouncing: false,
+    bouncing: true,
+    vy: -100 - Math.random() * 60, // Upward velocity
+    vx: (Math.random() - 0.5) * 60, // Horizontal scatter
+    groundY: dropY + 5, // Where it lands
     _serverLootId: loot.id,
-  });
+  };
+  lootDrops.push(drop);
+
+  // Legendary drop effects!
+  if (gear.rarity === 'legendary') {
+    triggerLegendaryDropEffect(drop);
+  }
 }
 export function removeServerLoot(id: bigint) {
   const key = id.toString();
@@ -1066,6 +1152,154 @@ export function syncRoom(roomIndex: number) {
   goToRoom(roomIndex, roomIndex > currentRoom ? 'top' : 'bottom');
 }
 export function getCurrentRoom() { return currentRoom; }
+
+// ─── OPEN WORLD SERVER ENEMY MANAGEMENT ───
+
+/** Initialize open world enemies from server query */
+export function initOpenWorldServerEnemies(serverEnemies: Array<{
+  id: bigint, x: number, y: number, hp: number, maxHp: number, isAlive: boolean, enemyType: string
+}>) {
+  openWorldServerEnemies.clear();
+  const now = performance.now();
+
+  for (const e of serverEnemies) {
+    const key = e.id.toString();
+    const visuals = getEnemyVisuals(e.enemyType);
+    const cx = serverToClientX(e.x), cy = serverToClientY(e.y);
+    openWorldServerEnemies.set(key, {
+      serverId: e.id,
+      x: cx, y: cy,
+      serverX: cx, serverY: cy,
+      prevX: cx, prevY: cy,
+      hp: e.hp, maxHp: e.maxHp,
+      isAlive: e.isAlive,
+      enemyType: e.enemyType,
+      lastUpdateTime: now,
+      hit: 0,
+      color: visuals.color,
+      r: visuals.r,
+      knockX: 0,
+      knockY: 0,
+      aiState: 'idle',
+      stateTimer: 0,
+      facingAngle: 0,
+    });
+  }
+  console.log('[Game] Initialized', openWorldServerEnemies.size, 'open world server enemies');
+}
+
+/** Sync open world enemy from server update */
+export function syncOpenWorldEnemyFromServer(enemy: {
+  id: bigint, instanceId: bigint, roomX: number, roomY: number,
+  x: number, y: number, hp: number, maxHp: number, isAlive: boolean, enemyType: string
+}) {
+  // Only process enemies for the current room
+  if (enemy.roomX !== openWorldRoomX || enemy.roomY !== openWorldRoomY) {
+    return;
+  }
+
+  const key = enemy.id.toString();
+  const existing = openWorldServerEnemies.get(key);
+  const now = performance.now();
+
+  if (existing) {
+    // Check if enemy took damage
+    if (enemy.hp < existing.hp) {
+      existing.hit = 0.15;
+      // Damage number
+      dmgNumbers.push({
+        x: existing.x, y: existing.y - existing.r,
+        val: existing.hp - enemy.hp,
+        life: 0.8, vy: -60, color: '#fbbf24'
+      });
+      // Knockback from player position (juice effect)
+      if (player) {
+        const dx = existing.x - player.x;
+        const dy = existing.y - player.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const knockStrength = 80;
+        existing.knockX = (dx / dist) * knockStrength;
+        existing.knockY = (dy / dist) * knockStrength;
+      }
+    }
+
+    // Check if enemy died
+    if (!enemy.isAlive && existing.isAlive) {
+      // Death particles
+      for (let i = 0; i < 12; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const sp = 40 + Math.random() * 80;
+        particles.push({
+          x: existing.x, y: existing.y,
+          vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+          life: 0.6, maxLife: 0.6,
+          r: 3 + Math.random() * 4,
+          color: existing.color
+        });
+      }
+      sfx('kill');
+      haptic('kill');
+    }
+
+    // Update position
+    existing.prevX = existing.serverX;
+    existing.prevY = existing.serverY;
+    existing.serverX = serverToClientX(enemy.x);
+    existing.serverY = serverToClientY(enemy.y);
+    existing.hp = enemy.hp;
+    existing.maxHp = enemy.maxHp;
+    existing.isAlive = enemy.isAlive;
+    existing.lastUpdateTime = now;
+  } else {
+    // New enemy
+    const visuals = getEnemyVisuals(enemy.enemyType);
+    const cx = serverToClientX(enemy.x), cy = serverToClientY(enemy.y);
+    openWorldServerEnemies.set(key, {
+      serverId: enemy.id,
+      x: cx, y: cy,
+      serverX: cx, serverY: cy,
+      prevX: cx, prevY: cy,
+      hp: enemy.hp, maxHp: enemy.maxHp,
+      isAlive: enemy.isAlive,
+      enemyType: enemy.enemyType,
+      lastUpdateTime: now,
+      hit: 0,
+      color: visuals.color,
+      r: visuals.r,
+      knockX: 0,
+      knockY: 0,
+      aiState: 'idle',
+      stateTimer: 0,
+      facingAngle: 0,
+    });
+  }
+}
+
+/** Remove open world server enemy */
+export function removeOpenWorldServerEnemy(id: bigint) {
+  const key = id.toString();
+  openWorldServerEnemies.delete(key);
+}
+
+/** Get open world server enemies for rendering */
+export function getOpenWorldServerEnemiesForRender(): OpenWorldEnemyRenderState[] {
+  return Array.from(openWorldServerEnemies.values());
+}
+
+/** Set the open world instance ID (from main.ts) */
+export function setOpenWorldInstanceId(id: bigint | null) {
+  openWorldInstanceId = id;
+}
+
+/** Get the open world instance ID */
+export function getOpenWorldInstanceId(): bigint | null {
+  return openWorldInstanceId;
+}
+
+/** Clear open world server enemies (on room change) */
+export function clearOpenWorldServerEnemies() {
+  openWorldServerEnemies.clear();
+}
 
 function spawnLoot(x,y,enemyType){
   const table=DROP_TABLES[enemyType]||DROP_TABLES.slime;
@@ -1211,6 +1445,7 @@ function generateDungeon(depth){
 // ─── STATE ───
 let canvas,ctx,W,H,minimapCtx;
 let gameStarted=false, gameOver=false, gameDead=false, inHub=false;
+let gamePaused=false; // Paused when disconnected
 let player,camera,rooms,currentRoom,particles,dmgNumbers,enemies;
 let joystickActive=false,joystickTouchId=null,joyVec={x:0,y:0};
 let abilities={attack:{cd:0,maxCd:ATTACK_CD},dash:{cd:0,maxCd:DASH_CD},ability1:{cd:0,maxCd:8},ability2:{cd:0,maxCd:12}};
@@ -1686,6 +1921,7 @@ function enterOpenWorld() {
   openWorldRoomY = 5;
   openWorldEnemies.clear();
   openWorldPlayers.clear();
+  openWorldServerEnemies.clear(); // Clear server enemies
 
   callbacks.onEnterOpenWorld?.();
 
@@ -1709,7 +1945,7 @@ function enterOpenWorld() {
   // Initialize arrays and objects that are normally set in resetGame
   particles = [];
   dmgNumbers = [];
-  enemies = [];
+  enemies = []; // Kept for backwards compatibility but not used in online mode
   lootDrops = [];
   projectiles = [];
   sparkleParticles = [];
@@ -1723,8 +1959,8 @@ function enterOpenWorld() {
   currentRoom = 0;
   dungeonRooms = [{ name: 'Open World', doors: [], isBoss: false }];
 
-  // Spawn local enemies for Open World
-  spawnOpenWorldEnemies();
+  // NOTE: Server enemies are populated via callbacks from main.ts
+  // No local enemy spawning for online mode
 
   gameStarted = true;
   gameOver = false;
@@ -2584,18 +2820,19 @@ function doAttack(){
   else if(isCrit){dmg=Math.ceil(dmg*1.5);}
   // Gungnir Tip — first hit on each enemy 2x
   
-  // Open World mode: attack local enemies
+  // Open World mode: attack server enemies
   if (activeGameMode === 'open_world') {
-    enemies.forEach(e => {
-      if (e.hp <= 0) return;
+    getOpenWorldServerEnemiesForRender().forEach(e => {
+      if (!e.isAlive) return;
       const dx = e.x - player.x, dy = e.y - player.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
       if (dist < atkRange + e.r) {
-        const nx = dx / dist, ny = dy / dist;
-        hitEnemy(e, dmg, nx, ny);
+        // Visual feedback locally
         if (isCrit || ragnarok) {
           dmgNumbers.push({ x: e.x, y: e.y - e.r - 15, val: ragnarok ? 'RAGNAROK!' : 'CRIT!', life: 0.8, vy: -40, color: ragnarok ? '#f97316' : '#fbbf24' });
         }
+        // Send attack to server
+        callbacks.onOpenWorldAttack?.(e.serverId);
       }
     });
   } else {
@@ -2921,7 +3158,7 @@ let projectiles=[];
 
 // ─── UPDATE ───
 function update(dt){
-  if(!gameStarted||gameOver||gameDead)return;
+  if(!gameStarted||gameOver||gameDead||gamePaused)return;
 
   // Update keyboard input (WASD)
   updateKeyboardInput();
@@ -3013,12 +3250,14 @@ function update(dt){
       openWorldRoomY = newRoomY;
       player.x = newX;
       player.y = newY;
-      // Respawn enemies for the new room
-      spawnOpenWorldEnemies();
+      // Clear server enemies and notify main.ts to query new room enemies
+      openWorldServerEnemies.clear();
       lootDrops = [];
       const zone = getOpenWorldZone(openWorldRoomX, openWorldRoomY);
       showRoomLabel(`🌍 ${zone.name} (${openWorldRoomX}, ${openWorldRoomY})`);
       updateOpenWorldRoomIndicator();
+      // Query enemies for new room
+      callbacks.onOpenWorldRoomChange?.(newRoomX, newRoomY);
     }
   }
 
@@ -3651,7 +3890,11 @@ function draw(){
   });
 
   // Server enemies - render with interpolated positions (already scaled to client coords)
-  getServerEnemiesForRender().forEach(e => {
+  // Use open world enemies when in open world mode, otherwise use dungeon enemies
+  const enemiesToRender = activeGameMode === 'open_world'
+    ? getOpenWorldServerEnemiesForRender()
+    : getServerEnemiesForRender();
+  enemiesToRender.forEach(e => {
       if (!e.isAlive) return;
       ctx.save();
       ctx.translate(e.x, e.y);
@@ -4148,22 +4391,39 @@ export function syncPlayerStats(hp: number, maxHp: number, xp?: number, level?: 
     playerXP = xp;
     playerLevel = level;
 
-    // Show level up feedback
+    // Show level up feedback with full juice effects
     if (level > prevLevel) {
-      showPickup('LEVEL UP! Lv ' + level, '#fbbf24');
+      // Update base stats for new level
+      baseMaxHp += 10;
+      baseAtk += 2;
+      baseDef += 1;
+      player.maxHp = totalMaxHp();
+      player.hp = player.maxHp; // Full heal on level up
+
+      // Sound and haptics
       sfx('levelup');
       haptic('win');
-      // Level up particles
+
+      // Level up overlay animation
+      triggerLevelUpOverlay();
+
+      // Slow-mo for 3 seconds
+      slowMoTimer = 3.0;
+
+      showPickup('LEVEL UP! Lv ' + level, '#fbbf24');
+
+      // Golden particles
       for (let i = 0; i < 20; i++) {
         const a = Math.random() * Math.PI * 2;
+        const sp = 60 + Math.random() * 120;
         particles.push({
           x: player.x,
           y: player.y,
-          vx: Math.cos(a) * 80,
-          vy: Math.sin(a) * 80,
-          life: 0.8,
-          maxLife: 0.8,
-          r: 4,
+          vx: Math.cos(a) * sp,
+          vy: Math.sin(a) * sp,
+          life: 1,
+          maxLife: 1,
+          r: 3 + Math.random() * 4,
           color: '#fbbf24'
         });
       }

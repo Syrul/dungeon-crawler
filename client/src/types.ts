@@ -101,6 +101,8 @@ export interface GameCallbacks {
   onOpenWorldMove?: (roomX: number, roomY: number, x: number, y: number, facingX: number, facingY: number) => void;
   // Called when attacking in open world
   onOpenWorldAttack?: (enemyId: bigint) => void;
+  // Called when changing rooms in open world
+  onOpenWorldRoomChange?: (roomX: number, roomY: number) => void;
   // Called when queueing for dungeon
   onQueueDungeon?: (tier: number, difficulty: number) => void;
   // Called when starting solo dungeon

@@ -343,6 +343,21 @@ canvas{display:block;width:100%;height:100%}
 </div>
 
 <div id="connection-status" style="position:absolute;top:6px;right:6px;width:10px;height:10px;border-radius:50%;background:#ef4444;z-index:999;pointer-events:none;opacity:0.8"></div>
+
+<!-- Reconnecting Overlay -->
+<div id="reconnecting-overlay" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(10,10,18,0.95);display:none;align-items:center;justify-content:center;flex-direction:column;z-index:9999;pointer-events:auto">
+  <div style="width:50px;height:50px;border:4px solid rgba(255,255,255,0.1);border-top-color:#fbbf24;border-radius:50%;animation:spin 1s linear infinite;margin-bottom:20px"></div>
+  <h2 style="color:#fbbf24;font-size:24px;margin-bottom:10px;text-shadow:0 0 20px rgba(251,191,36,0.5)">Reconnecting...</h2>
+  <p style="color:#94a3b8;font-size:14px">Please wait while we restore your connection</p>
+</div>
+
+<!-- Connection Failed Overlay -->
+<div id="connection-failed-overlay" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(127,29,29,0.95);display:none;align-items:center;justify-content:center;flex-direction:column;z-index:9999;pointer-events:auto">
+  <h2 style="color:#fca5a5;font-size:28px;margin-bottom:10px">Connection Failed</h2>
+  <p style="color:#e2e8f0;font-size:14px;margin-bottom:20px;text-align:center">Unable to connect to the game server.<br>Please check your connection and try again.</p>
+  <button onclick="location.reload()" style="padding:14px 40px;font-size:18px;font-weight:700;border:none;border-radius:12px;background:linear-gradient(180deg,#ef4444,#dc2626);color:#fff;cursor:pointer">Retry Connection</button>
+</div>
+
 <script type="module" src="/src/main.ts"></script>
 </body>
 </html>
