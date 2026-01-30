@@ -40,3 +40,9 @@ Single Rust file SpacetimeDB module. Key concepts:
 - **Gear system:** rarities (common→legendary), prefixes/suffixes with stat affixes, card items with unique effects
 - **Canvas2D rendering** with touch joystick and ability buttons for mobile
 - **SpacetimeDB SDK** (`@clockworklabs/spacetimedb-sdk`) handles WebSocket connection and auto-generated bindings for type-safe client↔server communication
+
+### Visual System
+- **`THEME` object** in `game.ts` centralizes all colors (background, tiles, player, enemies, loot, UI) — edit here for palette changes
+- **Neon theme** is active: cyan player, magenta/pink enemies, enhanced glow effects, vignette, ambient particles
+- **Game modes:** hub, open_world, dungeon, raid — tracked via `activeGameMode` state
+- `getEnemyVisuals()` and `getClassColorInternal()` define character colors
