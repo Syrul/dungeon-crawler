@@ -1,9 +1,9 @@
 // main.ts — Entry point
 // Server-authoritative multiplayer with client interpolation
 
-import { initGame, setGameMode, setCallbacks, restoreFromServer, updateOtherPlayer, removeOtherPlayer, syncEnemyFromServer, removeServerEnemy, addServerLoot, removeServerLoot, syncRoom, getCurrentRoom, initServerEnemies, getServerEnemyIds, syncPlayerStats, clientToServerX, clientToServerY, getEquippedIcons, receiveMessage, setPlayerClass, getPlayerClass } from './game';
+import { initGame, setGameMode, setCallbacks, restoreFromServer, updateOtherPlayer, removeOtherPlayer, syncEnemyFromServer, removeServerEnemy, addServerLoot, removeServerLoot, syncRoom, getCurrentRoom, initServerEnemies, getServerEnemyIds, syncPlayerStats, clientToServerX, clientToServerY, getEquippedIcons, receiveMessage, setPlayerClass, getPlayerClass, returnToHub, onMatchFound, getActiveGameMode, getOpenWorldRoom } from './game';
 import { spacetimeClient } from './spacetime';
-import type { PlayerClass } from './types';
+import type { PlayerClass, ActiveGameMode } from './types';
 import { CLASS_STATS } from './types';
 
 const statusDot = document.getElementById('connection-status');
@@ -15,6 +15,8 @@ function setStatusDot(connected: boolean) {
 }
 
 let activeDungeonId: bigint | null = null;
+let activeRaidId: bigint | null = null;
+let openWorldInstanceId: bigint | null = null;
 
 // Class selection UI
 function showClassSelection() {
@@ -277,6 +279,67 @@ async function main() {
         if (activeDungeonId != null) {
           spacetimeClient.placeHealingZone(activeDungeonId, clientToServerX(x), clientToServerY(y));
         }
+      },
+      // New game mode callbacks
+      onEnterOpenWorld: () => {
+        spacetimeClient.enterOpenWorld().then(instanceId => {
+          if (instanceId) {
+            openWorldInstanceId = instanceId;
+            console.log('[Main] Entered Open World instance:', instanceId);
+          }
+        }).catch(err => {
+          console.error('[Main] Failed to enter Open World:', err);
+        });
+      },
+      onLeaveOpenWorld: () => {
+        spacetimeClient.leaveOpenWorld().then(() => {
+          openWorldInstanceId = null;
+          console.log('[Main] Left Open World');
+        }).catch(err => {
+          console.error('[Main] Failed to leave Open World:', err);
+        });
+      },
+      onOpenWorldMove: (roomX, roomY, x, y, facingX, facingY) => {
+        const eq = getEquippedIcons();
+        spacetimeClient.updateOpenWorldPosition(
+          roomX, roomY, x, y, facingX, facingY,
+          eq.weapon, eq.armor, eq.accessory
+        );
+      },
+      onOpenWorldAttack: (enemyId) => {
+        spacetimeClient.attackOpenWorld(enemyId);
+      },
+      onQueueDungeon: (tier, difficulty) => {
+        spacetimeClient.queueDungeon(tier, difficulty);
+      },
+      onStartDungeonSolo: (tier, difficulty) => {
+        spacetimeClient.startDungeonSolo(tier, difficulty).then(dungeonId => {
+          if (dungeonId) {
+            activeDungeonId = dungeonId;
+            console.log('[Main] Started solo dungeon:', dungeonId);
+            // Initialize enemies
+            setTimeout(() => {
+              if (activeDungeonId != null) {
+                const serverEnemies = spacetimeClient.getEnemiesForRoom(activeDungeonId, 0);
+                initServerEnemies(serverEnemies);
+                console.log('[Main] Initialized', serverEnemies.length, 'enemies for solo dungeon');
+              }
+            }, 500);
+          }
+        }).catch(err => {
+          console.error('[Main] Failed to start solo dungeon:', err);
+        });
+      },
+      onQueueRaid: () => {
+        spacetimeClient.queueRaid();
+      },
+      onCancelQueue: () => {
+        spacetimeClient.cancelQueue();
+      },
+      onReturnToHub: () => {
+        activeDungeonId = null;
+        activeRaidId = null;
+        openWorldInstanceId = null;
       },
     });
 

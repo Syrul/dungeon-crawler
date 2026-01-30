@@ -111,6 +111,15 @@ class SpacetimeClient {
           'SELECT * FROM threat_entry',
           'SELECT * FROM player_ability_state',
           'SELECT * FROM active_healing_zone',
+          // Game mode tables
+          'SELECT * FROM player_game_mode',
+          'SELECT * FROM open_world_instance',
+          'SELECT * FROM open_world_enemy',
+          'SELECT * FROM open_world_player',
+          'SELECT * FROM dungeon_queue',
+          'SELECT * FROM raid_queue',
+          'SELECT * FROM raid_instance',
+          'SELECT * FROM raid_participant',
         ]);
       console.log('[SpacetimeDB] Subscribed to tables');
     } catch (err) {
@@ -207,6 +216,114 @@ class SpacetimeClient {
     } catch (e) {
       return null;
     }
+  }
+
+  // ─── Game Mode Reducers ───
+
+  async enterOpenWorld(): Promise<bigint | null> {
+    if (!this.conn) return null;
+    try {
+      (this.conn.reducers as any).enterOpenWorld({});
+      // Wait for instance to be assigned
+      await new Promise(resolve => setTimeout(resolve, 500));
+      // Return instance ID from subscription
+      const player = this.getOpenWorldPlayer();
+      return player?.instanceId ?? null;
+    } catch (e) {
+      console.warn('[SpacetimeDB] enterOpenWorld failed:', e);
+      return null;
+    }
+  }
+
+  async leaveOpenWorld(): Promise<void> {
+    if (!this.conn) return;
+    try {
+      (this.conn.reducers as any).leaveOpenWorld({});
+    } catch (e) {
+      console.warn('[SpacetimeDB] leaveOpenWorld failed:', e);
+    }
+  }
+
+  updateOpenWorldPosition(roomX: number, roomY: number, x: number, y: number, facingX: number, facingY: number, weaponIcon: string, armorIcon: string, accessoryIcon: string) {
+    if (!this.conn) return;
+    try {
+      (this.conn.reducers as any).updateOpenWorldPosition({
+        roomX, roomY, x, y, facingX, facingY, weaponIcon, armorIcon, accessoryIcon
+      });
+    } catch (e) {
+      console.warn('[SpacetimeDB] updateOpenWorldPosition failed:', e);
+    }
+  }
+
+  attackOpenWorld(enemyId: bigint) {
+    if (!this.conn) return;
+    try {
+      (this.conn.reducers as any).attackOpenWorld({ enemyId });
+    } catch (e) {
+      console.warn('[SpacetimeDB] attackOpenWorld failed:', e);
+    }
+  }
+
+  queueDungeon(dungeonTier: number, difficulty: number) {
+    if (!this.conn) return;
+    try {
+      (this.conn.reducers as any).queueDungeon({ dungeonTier, difficulty });
+    } catch (e) {
+      console.warn('[SpacetimeDB] queueDungeon failed:', e);
+    }
+  }
+
+  async startDungeonSolo(dungeonTier: number, difficulty: number): Promise<bigint | null> {
+    if (!this.conn) return null;
+    try {
+      (this.conn.reducers as any).startDungeonSolo({ dungeonTier, difficulty });
+      // Wait for dungeon to be created
+      await new Promise(resolve => setTimeout(resolve, 500));
+      const dungeon = this.getActiveDungeon();
+      return dungeon?.id ?? null;
+    } catch (e) {
+      console.warn('[SpacetimeDB] startDungeonSolo failed:', e);
+      return null;
+    }
+  }
+
+  queueRaid() {
+    if (!this.conn) return;
+    try {
+      (this.conn.reducers as any).queueRaid({});
+    } catch (e) {
+      console.warn('[SpacetimeDB] queueRaid failed:', e);
+    }
+  }
+
+  cancelQueue() {
+    if (!this.conn) return;
+    try {
+      (this.conn.reducers as any).cancelQueue({});
+    } catch (e) {
+      console.warn('[SpacetimeDB] cancelQueue failed:', e);
+    }
+  }
+
+  /** Get current open world player data */
+  getOpenWorldPlayer(): { instanceId: bigint, roomX: number, roomY: number, x: number, y: number } | null {
+    if (!this.conn || !this._state.identity) return null;
+    try {
+      for (const p of (this.conn.db as any).openWorldPlayer.iter()) {
+        if (p.identity.toHexString() === this._state.identity) {
+          return {
+            instanceId: p.instanceId,
+            roomX: p.roomX,
+            roomY: p.roomY,
+            x: p.x,
+            y: p.y,
+          };
+        }
+      }
+    } catch (e) {
+      console.warn('[SpacetimeDB] getOpenWorldPlayer failed:', e);
+    }
+    return null;
   }
 
   /** Read current player data from subscribed tables */

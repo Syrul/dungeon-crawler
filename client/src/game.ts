@@ -1,8 +1,8 @@
 // game.ts — Dungeon Crawler game logic
 // Server-authoritative multiplayer with client interpolation
 
-import type { GameMode, GameCallbacks, PlayerClass } from './types';
-import { CLASS_STATS } from './types';
+import type { GameMode, GameCallbacks, PlayerClass, ActiveGameMode } from './types';
+import { CLASS_STATS, DUNGEON_TIERS } from './types';
 
 let gameMode: GameMode = 'online'; // Always online - server-authoritative
 let callbacks: GameCallbacks = {};
@@ -10,6 +10,22 @@ let callbacks: GameCallbacks = {};
 // Player class selection state
 let playerClass: PlayerClass = 'healer'; // Default class
 let classSelected: boolean = false; // Whether class has been selected this session
+
+// Active game mode state (hub, open_world, dungeon, raid)
+let activeGameMode: ActiveGameMode = 'hub';
+
+// Open World state
+let openWorldRoomX = 5;
+let openWorldRoomY = 5;
+let openWorldEnemies: Map<string, any> = new Map();
+let openWorldPlayers: Map<string, any> = new Map();
+
+// Queue state
+let inQueue = false;
+let queueType: 'dungeon' | 'raid' | null = null;
+let queueStartTime = 0;
+let selectedDungeonTier = 1;
+let selectedDifficulty = 1;
 
 export function setGameMode(mode: GameMode) {
   gameMode = mode;
@@ -45,6 +61,49 @@ function exposeGlobals() {
 const TILE = 36; // Fixed to match server - no dynamic scaling
 const PLAYER_R = 14;
 const CAM_SMOOTH = 0.08;
+
+// ─── NEON THEME ───
+const THEME = {
+  // Environment
+  background: '#0a0a12',
+  tileA: '#1a1a2e',
+  tileB: '#15152a',
+  gridOpacity: 0.08,
+  wallOuter: '#0a0a12',
+  wallInner: '#1a1a2e',
+
+  // Player colors (neon cyan)
+  playerMain: '#00ffff',
+  playerMid: '#00cccc',
+  playerLight: '#80ffff',
+
+  // Enemy colors
+  slimeColor: '#00ff88',
+  skeletonColor: '#ff00ff',
+  bossColor: '#ff0066',
+  enemyOutlines: true,
+
+  // Loot glow colors
+  lootCommon: '#888888',
+  lootUncommon: '#00ff88',
+  lootRare: '#00aaff',
+  lootEpic: '#ff00ff',
+  lootLegendary: '#ffaa00',
+  glowIntensity: 1.4,
+
+  // Effects
+  damageColor: '#ff0066',
+  hpBarColor: '#00ff88',
+  xpBarColor: '#00aaff',
+  shakeIntensity: 8,
+
+  // Vignette
+  vignetteEnabled: true,
+  vignetteIntensity: 0.6,
+
+  // Ambient particles
+  ambientParticles: true,
+};
 
 // ─── HAPTICS ───
 function haptic(type){
@@ -178,11 +237,11 @@ const DASH_DUR = 0.15;
 
 // ─── GEAR SYSTEM (Diablo/RO Overhaul) ───
 const RARITIES = [
-  {name:'common',color:'#ffffff',idx:0},
-  {name:'uncommon',color:'#22c55e',idx:1},
-  {name:'rare',color:'#3b82f6',idx:2},
-  {name:'epic',color:'#a855f7',idx:3},
-  {name:'legendary',color:'#f97316',idx:4}
+  {name:'common',color:THEME.lootCommon,idx:0},
+  {name:'uncommon',color:THEME.lootUncommon,idx:1},
+  {name:'rare',color:THEME.lootRare,idx:2},
+  {name:'epic',color:THEME.lootEpic,idx:3},
+  {name:'legendary',color:THEME.lootLegendary,idx:4}
 ];
 const RARITY_MAP={common:RARITIES[0],uncommon:RARITIES[1],rare:RARITIES[2],epic:RARITIES[3],legendary:RARITIES[4]};
 
@@ -533,15 +592,16 @@ function getPlayerColor(){
 }
 
 function getClassColorInternal(pClass: PlayerClass): { main: string; mid: string; light: string } {
+  // Neon theme: use cyan base with class-specific tints
   switch (pClass) {
     case 'tank':
-      return { main: '#3b82f6', mid: '#2563eb', light: '#93c5fd' }; // blue
+      return { main: '#00aaff', mid: '#0088cc', light: '#66ccff' }; // neon blue
     case 'healer':
-      return { main: '#22c55e', mid: '#16a34a', light: '#86efac' }; // green
+      return { main: THEME.playerMain, mid: THEME.playerMid, light: THEME.playerLight }; // neon cyan
     case 'dps':
-      return { main: '#ef4444', mid: '#dc2626', light: '#fca5a5' }; // red
+      return { main: '#ff0066', mid: '#cc0055', light: '#ff6699' }; // neon pink
     default:
-      return { main: '#3b82f6', mid: '#2563eb', light: '#93c5fd' };
+      return { main: THEME.playerMain, mid: THEME.playerMid, light: THEME.playerLight };
   }
 }
 
@@ -706,17 +766,17 @@ let serverEnemyStates: Map<string, EnemyRenderState> = new Map();
 
 function getEnemyVisuals(enemyType: string): { color: string, r: number, eyeColor: string } {
   switch (enemyType) {
-    case 'slime': return { color: '#22c55e', r: 12, eyeColor: '#fff' };
-    case 'skeleton': return { color: '#e2e8f0', r: 13, eyeColor: '#1a1a2e' };
-    case 'archer': return { color: '#a78bfa', r: 12, eyeColor: '#fff' };
-    case 'charger': return { color: '#ea580c', r: 14, eyeColor: '#fff' };
-    case 'wolf': return { color: '#9ca3af', r: 10, eyeColor: '#fbbf24' };
-    case 'bomber': return { color: '#f97316', r: 11, eyeColor: '#fff' };
-    case 'necromancer': return { color: '#7e22ce', r: 14, eyeColor: '#a855f7' };
-    case 'shield_knight': return { color: '#6b7280', r: 15, eyeColor: '#fff' };
-    case 'boss': return { color: '#ef4444', r: 28, eyeColor: '#fbbf24' };
-    case 'raid_boss': return { color: '#dc2626', r: 40, eyeColor: '#fbbf24' };
-    case 'bat': return { color: '#374151', r: 10, eyeColor: '#ef4444' };
+    case 'slime': return { color: THEME.slimeColor, r: 12, eyeColor: '#fff' };
+    case 'skeleton': return { color: THEME.skeletonColor, r: 13, eyeColor: '#0a0a12' };
+    case 'archer': return { color: '#ff66ff', r: 12, eyeColor: '#fff' }; // neon magenta
+    case 'charger': return { color: '#ff4400', r: 14, eyeColor: '#fff' }; // neon orange
+    case 'wolf': return { color: '#aa88ff', r: 10, eyeColor: '#ffff00' }; // neon purple
+    case 'bomber': return { color: '#ffaa00', r: 11, eyeColor: '#fff' }; // neon amber
+    case 'necromancer': return { color: '#aa00ff', r: 14, eyeColor: '#ff00ff' }; // neon violet
+    case 'shield_knight': return { color: '#00ffaa', r: 15, eyeColor: '#fff' }; // neon teal
+    case 'boss': return { color: THEME.bossColor, r: 28, eyeColor: '#ffff00' };
+    case 'raid_boss': return { color: THEME.bossColor, r: 40, eyeColor: '#ffff00' };
+    case 'bat': return { color: '#6644aa', r: 10, eyeColor: '#ff0066' };
     default: return { color: '#ffffff', r: 12, eyeColor: '#000' };
   }
 }
@@ -1158,6 +1218,40 @@ let shakeTimer=0,shakeIntensity=0;
 let roomTransition=0,roomTransAlpha=0;
 let lastTime=0;
 
+// ─── GAME AMBIENT PARTICLES (Neon Theme) ───
+let gameAmbientParticles: {x:number,y:number,vx:number,vy:number,r:number,alpha:number,color:string}[] = [];
+function initAmbientParticles(){
+  gameAmbientParticles=[];
+  for(let i=0;i<40;i++){
+    gameAmbientParticles.push({
+      x:Math.random()*GAME_WIDTH,
+      y:Math.random()*GAME_HEIGHT,
+      vx:(Math.random()-0.5)*0.4,
+      vy:-0.3-Math.random()*0.4,
+      r:1+Math.random()*2.5,
+      alpha:0.2+Math.random()*0.4,
+      color:[THEME.playerMain,THEME.lootEpic,THEME.lootRare,'#ffffff'][Math.floor(Math.random()*4)]
+    });
+  }
+}
+function drawAmbientParticles(){
+  if(gameAmbientParticles.length===0)initAmbientParticles();
+  const camX=camera?.x||0,camY=camera?.y||0;
+  gameAmbientParticles.forEach(p=>{
+    p.x+=p.vx;p.y+=p.vy;
+    p.alpha+=Math.sin(Date.now()*0.002+p.x*0.01)*0.005;
+    if(p.y<-10){p.y=GAME_HEIGHT+10;p.x=Math.random()*GAME_WIDTH;}
+    if(p.x<-10||p.x>GAME_WIDTH+10){p.x=Math.random()*GAME_WIDTH;}
+    // Draw in screen space
+    const sx=((p.x+camX*0.1)%GAME_WIDTH+GAME_WIDTH)%GAME_WIDTH;
+    const sy=((p.y+camY*0.05)%GAME_HEIGHT+GAME_HEIGHT)%GAME_HEIGHT;
+    ctx.globalAlpha=Math.max(0,Math.min(0.6,p.alpha));
+    ctx.fillStyle=p.color;
+    ctx.beginPath();ctx.arc(sx,sy,p.r,0,Math.PI*2);ctx.fill();
+  });
+  ctx.globalAlpha=1;
+}
+
 // ─── HUB AMBIENT PARTICLES ───
 let hubParticles=[];
 let hubAnimFrame=null;
@@ -1171,7 +1265,7 @@ function startHubAmbient(){
       x:Math.random()*160,y:Math.random()*160,
       vx:(Math.random()-0.5)*0.3,vy:-0.2-Math.random()*0.3,
       r:1+Math.random()*2,alpha:Math.random(),
-      color:['#fbbf24','#a78bfa','#60a5fa','#fff'][Math.floor(Math.random()*4)]
+      color:['#fbbf24','#a78bfa','#00ffff','#fff'][Math.floor(Math.random()*4)]
     });
   }
   function drawHubChar(){
@@ -1288,6 +1382,16 @@ function init(){
   document.getElementById('inv-close').addEventListener('click',closeInventory);
   document.getElementById('stats-close').addEventListener('click',closeStats);
   document.getElementById('btn-hub-inventory').addEventListener('click',openInventory);
+
+  // Return to hub button
+  const returnBtn = document.getElementById('btn-return-hub');
+  if (returnBtn) {
+    returnBtn.addEventListener('click', () => {
+      if (activeGameMode !== 'hub') {
+        returnToHub();
+      }
+    });
+  }
   requestAnimationFrame(loop);
 }
 
@@ -1318,6 +1422,9 @@ function resize(){
 
 function showHub(){
   inHub=true;gameStarted=false;gameOver=false;gameDead=false;
+  activeGameMode = 'hub';
+  inQueue = false;
+  queueType = null;
 
   // Display class icon and level
   const classInfo = CLASS_STATS[playerClass];
@@ -1328,7 +1435,7 @@ function showHub(){
 
   let info=`💰 <span>${gold}</span> Gold &nbsp;·&nbsp; Dungeon Depth: <span>${dungeonDepth}</span>`;
   document.getElementById('hub-info').innerHTML=info;
-  
+
   // Gear slots
   const gearDiv=document.getElementById('hub-gear-slots');
   gearDiv.innerHTML='';
@@ -1344,9 +1451,581 @@ function showHub(){
     }
     gearDiv.appendChild(el);
   });
-  
+
+  // Setup mode selection buttons
+  setupModeButtons();
+
   document.getElementById('hub-screen').style.display='flex';
   startHubAmbient();
+  updateGameModeUI();
+}
+
+function setupModeButtons() {
+  // These buttons are added dynamically to the hub screen
+  const hubButtons = document.getElementById('hub-buttons');
+  if (!hubButtons) return;
+
+  // Remove existing mode buttons if present
+  let modeNav = document.getElementById('hub-mode-nav');
+  if (!modeNav) {
+    modeNav = document.createElement('div');
+    modeNav.id = 'hub-mode-nav';
+    modeNav.className = 'hub-mode-nav';
+    modeNav.innerHTML = `
+      <div class="mode-btn open-world-btn" data-mode="open_world">
+        <span class="mode-icon">🌍</span>
+        <span class="mode-label">Open World</span>
+        <span class="mode-desc">Explore &amp; grind</span>
+      </div>
+      <div class="mode-btn dungeon-btn" data-mode="dungeon">
+        <span class="mode-icon">⚔️</span>
+        <span class="mode-label">Dungeon</span>
+        <span class="mode-desc">Solo or Co-op</span>
+      </div>
+      <div class="mode-btn raid-btn" data-mode="raid">
+        <span class="mode-icon">🔥</span>
+        <span class="mode-label">Raid</span>
+        <span class="mode-desc">4-player party</span>
+      </div>
+    `;
+
+    // Insert before the enter dungeon button and hide it
+    const enterBtn = document.getElementById('btn-enter-dungeon');
+    if (enterBtn) {
+      hubButtons.insertBefore(modeNav, enterBtn);
+      enterBtn.style.display = 'none'; // Hide old single button
+    } else {
+      hubButtons.insertBefore(modeNav, hubButtons.firstChild);
+    }
+
+    // Add click handlers
+    modeNav.querySelectorAll('.mode-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const mode = (btn as HTMLElement).dataset.mode;
+        if (mode === 'open_world') openOpenWorldConfirm();
+        else if (mode === 'dungeon') openDungeonBoard();
+        else if (mode === 'raid') openRaidGate();
+      });
+    });
+  }
+}
+
+function openOpenWorldConfirm() {
+  // Show confirmation overlay for entering open world
+  let overlay = document.getElementById('open-world-confirm');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'open-world-confirm';
+    overlay.className = 'mode-overlay';
+    overlay.innerHTML = `
+      <div class="mode-panel">
+        <h2>🌍 Open World</h2>
+        <p>Explore a persistent 10×10 grid world with enemies scaling by distance from town.</p>
+        <div class="mode-info">
+          <div class="info-row"><span>🟢 Center:</span> Level 1-5</div>
+          <div class="info-row"><span>🟡 Mid:</span> Level 6-15</div>
+          <div class="info-row"><span>🔴 Outer:</span> Level 16+</div>
+          <div class="info-row"><span>⭐ Hotspots:</span> Faster respawns</div>
+        </div>
+        <div class="mode-buttons">
+          <button class="btn-enter">Enter Open World</button>
+          <button class="btn-cancel">Cancel</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    overlay.querySelector('.btn-enter').addEventListener('click', () => {
+      overlay.style.display = 'none';
+      enterOpenWorld();
+    });
+    overlay.querySelector('.btn-cancel').addEventListener('click', () => {
+      overlay.style.display = 'none';
+    });
+  }
+  overlay.style.display = 'flex';
+}
+
+function openDungeonBoard() {
+  // Show dungeon tier selection overlay
+  let overlay = document.getElementById('dungeon-board');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'dungeon-board';
+    overlay.className = 'mode-overlay';
+
+    const tiersHtml = DUNGEON_TIERS.map(t => `
+      <div class="tier-option ${t.tier === selectedDungeonTier ? 'selected' : ''}" data-tier="${t.tier}">
+        <span class="tier-icon">${t.icon}</span>
+        <div class="tier-info">
+          <span class="tier-name">${t.name}</span>
+          <span class="tier-levels">Lv ${t.levelRange[0]}-${t.levelRange[1]}</span>
+        </div>
+      </div>
+    `).join('');
+
+    overlay.innerHTML = `
+      <div class="mode-panel dungeon-panel">
+        <h2>⚔️ Dungeon Board</h2>
+        <div class="tier-select">
+          <h3>Select Tier</h3>
+          ${tiersHtml}
+        </div>
+        <div class="difficulty-select">
+          <h3>Difficulty</h3>
+          <div class="star-rating">
+            ${[1,2,3,4,5].map(s => `<span class="star ${s <= selectedDifficulty ? 'active' : ''}" data-star="${s}">★</span>`).join('')}
+          </div>
+          <span class="difficulty-bonus">+${(selectedDifficulty - 1) * 15}% enemy stats</span>
+        </div>
+        <div class="mode-buttons">
+          <button class="btn-solo">Solo Start</button>
+          <button class="btn-coop">Queue Co-op</button>
+          <button class="btn-cancel">Cancel</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    // Tier selection
+    overlay.querySelectorAll('.tier-option').forEach(opt => {
+      opt.addEventListener('click', () => {
+        overlay.querySelectorAll('.tier-option').forEach(o => o.classList.remove('selected'));
+        opt.classList.add('selected');
+        selectedDungeonTier = parseInt((opt as HTMLElement).dataset.tier);
+      });
+    });
+
+    // Star rating
+    overlay.querySelectorAll('.star').forEach(star => {
+      star.addEventListener('click', () => {
+        selectedDifficulty = parseInt((star as HTMLElement).dataset.star);
+        overlay.querySelectorAll('.star').forEach((s, i) => {
+          s.classList.toggle('active', i < selectedDifficulty);
+        });
+        overlay.querySelector('.difficulty-bonus').textContent =
+          `+${(selectedDifficulty - 1) * 15}% enemy stats`;
+      });
+    });
+
+    overlay.querySelector('.btn-solo').addEventListener('click', () => {
+      overlay.style.display = 'none';
+      startDungeonSolo();
+    });
+    overlay.querySelector('.btn-coop').addEventListener('click', () => {
+      overlay.style.display = 'none';
+      queueForDungeon();
+    });
+    overlay.querySelector('.btn-cancel').addEventListener('click', () => {
+      overlay.style.display = 'none';
+    });
+  }
+  overlay.style.display = 'flex';
+}
+
+function openRaidGate() {
+  // Show raid queue overlay
+  let overlay = document.getElementById('raid-gate');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'raid-gate';
+    overlay.className = 'mode-overlay';
+
+    const classInfo = CLASS_STATS[playerClass];
+    overlay.innerHTML = `
+      <div class="mode-panel raid-panel">
+        <h2>🔥 Raid Gate</h2>
+        <p>Queue as your class for a 4-player raid against the boss.</p>
+        <div class="raid-comp">
+          <h3>Required Composition</h3>
+          <div class="role-slots">
+            <div class="role-slot tank"><span>🛡️</span> Tank (1)</div>
+            <div class="role-slot healer"><span>💚</span> Healer (1)</div>
+            <div class="role-slot dps"><span>⚔️</span> DPS (2)</div>
+          </div>
+        </div>
+        <div class="your-role">
+          <span>Your role: </span>
+          <strong>${classInfo.icon} ${playerClass.toUpperCase()}</strong>
+        </div>
+        <div class="raid-rewards">
+          <div class="reward"><span>🌟</span> First daily clear: Guaranteed Legendary</div>
+          <div class="reward"><span>💎</span> Additional clears: Guaranteed Epic</div>
+        </div>
+        <div class="mode-buttons">
+          <button class="btn-queue">Queue for Raid</button>
+          <button class="btn-cancel">Cancel</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    overlay.querySelector('.btn-queue').addEventListener('click', () => {
+      overlay.style.display = 'none';
+      queueForRaid();
+    });
+    overlay.querySelector('.btn-cancel').addEventListener('click', () => {
+      overlay.style.display = 'none';
+    });
+  }
+
+  // Update current role display
+  const classInfo = CLASS_STATS[playerClass];
+  overlay.querySelector('.your-role strong').textContent =
+    `${classInfo.icon} ${playerClass.toUpperCase()}`;
+
+  overlay.style.display = 'flex';
+}
+
+function enterOpenWorld() {
+  stopHubAmbient();
+  document.getElementById('hub-screen').style.display = 'none';
+  inHub = false;
+  activeGameMode = 'open_world';
+  openWorldRoomX = 5;
+  openWorldRoomY = 5;
+  openWorldEnemies.clear();
+  openWorldPlayers.clear();
+
+  callbacks.onEnterOpenWorld?.();
+
+  // Initialize player for open world
+  player = {
+    x: GAME_WIDTH / 2,
+    y: GAME_HEIGHT / 2,
+    hp: totalMaxHp(),
+    maxHp: totalMaxHp(),
+    r: PLAYER_R,
+    vx: 0, vy: 0,
+    speed: totalSpeed(),
+    facing: { x: 0, y: -1 },
+    dashing: false,
+    dashTimer: 0,
+    dashDir: { x: 0, y: 0 },
+    invincible: 0,
+    attackAnim: 0
+  };
+
+  // Initialize arrays and objects that are normally set in resetGame
+  particles = [];
+  dmgNumbers = [];
+  enemies = [];
+  lootDrops = [];
+  projectiles = [];
+  sparkleParticles = [];
+  camera = { x: 0, y: 0 };
+  serverEnemyStates.clear();
+  serverEnemyIds = [];
+  otherPlayers.clear();
+
+  // Initialize empty room for Open World (no walls, just floor)
+  rooms = [generateOpenWorldRoom()];
+  currentRoom = 0;
+  dungeonRooms = [{ name: 'Open World', doors: [], isBoss: false }];
+
+  // Spawn local enemies for Open World
+  spawnOpenWorldEnemies();
+
+  gameStarted = true;
+  gameOver = false;
+  gameDead = false;
+  showRoomLabel(`🌍 Open World (${openWorldRoomX}, ${openWorldRoomY})`);
+  updateGameModeUI();
+}
+
+function spawnOpenWorldEnemies() {
+  enemies = [];
+  const zone = getOpenWorldZone(openWorldRoomX, openWorldRoomY);
+  const baseLevel = zone.levelRange[0];
+
+  // Skip town center (5,5)
+  if (openWorldRoomX === 5 && openWorldRoomY === 5) return;
+
+  // Number of enemies based on zone
+  const numEnemies = zone.name === 'Danger Zone' ? 8 : zone.name === 'Wilderness' ? 6 : 4;
+
+  const enemyTypes = zone.name === 'Danger Zone'
+    ? ['charger', 'bomber', 'necromancer', 'shield_knight']
+    : zone.name === 'Wilderness'
+    ? ['skeleton', 'archer', 'wolf']
+    : ['slime', 'bat', 'skeleton'];
+
+  let localPackId = 0;
+
+  for (let i = 0; i < numEnemies; i++) {
+    const angle = (i / numEnemies) * Math.PI * 2;
+    const radius = 120 + Math.random() * 100;
+    const x = GAME_WIDTH / 2 + Math.cos(angle) * radius;
+    const y = GAME_HEIGHT / 2 + Math.sin(angle) * radius;
+    const type = enemyTypes[Math.floor(Math.random() * enemyTypes.length)];
+    const stats = getLocalEnemyStats(type, baseLevel);
+
+    // Base enemy properties
+    const enemy: any = {
+      type,
+      x, y,
+      hp: stats.hp,
+      maxHp: stats.hp,
+      r: stats.r,
+      speed: stats.speed,
+      dmg: stats.atk,
+      xp: stats.xp,
+      color: stats.color,
+      eyeColor: '#fff',
+      hit: 0,
+      knockX: 0, knockY: 0,
+      atkRange: type === 'archer' ? 180 : 30,
+      atkCd: 1.5,
+      atkTimer: Math.random() * 1.5,
+      burning: 0,
+      burnDmg: 0,
+      slowTimer: 0,
+    };
+
+    // Type-specific properties (match ENEMY_DEFS)
+    if (type === 'archer') {
+      enemy.ranged = true;
+      enemy.atkCd = 2.0;
+    }
+    if (type === 'charger') {
+      enemy.chargeState = 'idle';
+      enemy.chargeTelegraph = 0;
+      enemy.chargeDir = { x: 0, y: 0 };
+      enemy.chargeSpeed = 0;
+      enemy.stunTimer = 0;
+      enemy.atkCd = 3.0;
+    }
+    if (type === 'wolf') {
+      enemy.packId = localPackId;
+      enemy.packAngle = angle;
+      enemy.atkCd = 1.2;
+    }
+    if (type === 'bomber') {
+      enemy.fuseTimer = -1;
+      enemy.fuseMax = 2.0;
+    }
+    if (type === 'necromancer') {
+      enemy.summonTimer = 5;
+      enemy.summonCount = 0;
+      enemy.teleportCd = 0;
+      enemy.summonIds = [];
+      enemy.atkCd = 2.0;
+    }
+    if (type === 'shield_knight') {
+      enemy.shieldAngle = 0;
+      enemy.bashCd = 0;
+      enemy.bashTimer = 4.0;
+      enemy.atkCd = 2.5;
+    }
+
+    enemies.push(enemy);
+  }
+
+  // Assign pack IDs to wolves
+  localPackId++;
+}
+
+function getLocalEnemyStats(type: string, level: number) {
+  const scale = 1 + (level - 1) * 0.15;
+  const baseStats: Record<string, { hp: number, atk: number, r: number, speed: number, xp: number, color: string }> = {
+    slime: { hp: 40, atk: 8, r: 14, speed: 40, xp: 10, color: '#22c55e' },
+    bat: { hp: 15, atk: 6, r: 10, speed: 90, xp: 8, color: '#6b7280' },
+    skeleton: { hp: 60, atk: 12, r: 14, speed: 50, xp: 15, color: '#d1d5db' },
+    archer: { hp: 35, atk: 10, r: 12, speed: 35, xp: 18, color: '#92400e' },
+    wolf: { hp: 20, atk: 8, r: 10, speed: 100, xp: 12, color: '#9ca3af' },
+    charger: { hp: 40, atk: 20, r: 16, speed: 60, xp: 25, color: '#dc2626' },
+    bomber: { hp: 25, atk: 30, r: 14, speed: 45, xp: 20, color: '#f97316' },
+    necromancer: { hp: 60, atk: 5, r: 14, speed: 30, xp: 50, color: '#7c3aed' },
+    shield_knight: { hp: 70, atk: 12, r: 18, speed: 40, xp: 35, color: '#6b7280' },
+  };
+  const base = baseStats[type] || baseStats.slime;
+  return {
+    hp: Math.floor(base.hp * scale),
+    atk: Math.floor(base.atk * scale),
+    r: base.r,
+    speed: base.speed,
+    xp: Math.floor(base.xp * scale),
+    color: base.color,
+  };
+}
+
+function generateOpenWorldRoom(): number[][] {
+  // Generate an open room with no walls (just edges)
+  const room: number[][] = [];
+  for (let y = 0; y < ROOM_H; y++) {
+    room[y] = [];
+    for (let x = 0; x < ROOM_W; x++) {
+      // Walls only on edges
+      if (x === 0 || x === ROOM_W - 1 || y === 0 || y === ROOM_H - 1) {
+        room[y][x] = 0; // Floor even at edges for seamless transitions
+      } else {
+        room[y][x] = 0; // Floor
+      }
+    }
+  }
+  return room;
+}
+
+function updateGameModeUI() {
+  // Show/hide UI elements based on active game mode
+  const returnBtn = document.getElementById('btn-return-hub');
+  const roomIndicator = document.getElementById('ow-room-indicator');
+
+  if (activeGameMode === 'hub') {
+    if (returnBtn) returnBtn.style.display = 'none';
+    if (roomIndicator) roomIndicator.style.display = 'none';
+  } else {
+    if (returnBtn) returnBtn.style.display = 'flex';
+    if (roomIndicator) {
+      roomIndicator.style.display = activeGameMode === 'open_world' ? 'block' : 'none';
+      if (activeGameMode === 'open_world') {
+        updateOpenWorldRoomIndicator();
+      }
+    }
+  }
+}
+
+function startDungeonSolo() {
+  stopHubAmbient();
+  document.getElementById('hub-screen').style.display = 'none';
+  inHub = false;
+  activeGameMode = 'dungeon';
+
+  callbacks.onStartDungeonSolo?.(selectedDungeonTier, selectedDifficulty);
+
+  // Initialize game state
+  resetGame();
+  updateGameModeUI();
+}
+
+function queueForDungeon() {
+  inQueue = true;
+  queueType = 'dungeon';
+  queueStartTime = Date.now();
+
+  callbacks.onQueueDungeon?.(selectedDungeonTier, selectedDifficulty);
+
+  showQueueStatus();
+}
+
+function queueForRaid() {
+  inQueue = true;
+  queueType = 'raid';
+  queueStartTime = Date.now();
+
+  callbacks.onQueueRaid?.();
+
+  showQueueStatus();
+}
+
+function showQueueStatus() {
+  let overlay = document.getElementById('queue-status');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'queue-status';
+    overlay.className = 'queue-overlay';
+    overlay.innerHTML = `
+      <div class="queue-panel">
+        <div class="queue-spinner"></div>
+        <h3>Finding Players...</h3>
+        <div class="queue-time">0:00</div>
+        <div class="queue-type"></div>
+        <button class="btn-cancel-queue">Cancel</button>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    overlay.querySelector('.btn-cancel-queue').addEventListener('click', () => {
+      cancelQueue();
+    });
+  }
+
+  const typeText = queueType === 'raid' ? 'Raid Queue' :
+    `Dungeon Tier ${selectedDungeonTier} (${selectedDifficulty}★)`;
+  overlay.querySelector('.queue-type').textContent = typeText;
+  overlay.style.display = 'flex';
+
+  // Start timer update
+  updateQueueTimer();
+}
+
+function updateQueueTimer() {
+  if (!inQueue) return;
+
+  const overlay = document.getElementById('queue-status');
+  if (!overlay) return;
+
+  const elapsed = Math.floor((Date.now() - queueStartTime) / 1000);
+  const mins = Math.floor(elapsed / 60);
+  const secs = elapsed % 60;
+  overlay.querySelector('.queue-time').textContent =
+    `${mins}:${secs.toString().padStart(2, '0')}`;
+
+  // Show timeout option for dungeon queue after 30 seconds
+  if (queueType === 'dungeon' && elapsed >= 30) {
+    let timeoutBtn = overlay.querySelector('.btn-start-solo') as HTMLElement;
+    if (!timeoutBtn) {
+      timeoutBtn = document.createElement('button');
+      timeoutBtn.className = 'btn-start-solo';
+      timeoutBtn.textContent = 'Start Solo Instead';
+      timeoutBtn.addEventListener('click', () => {
+        hideQueueStatus();
+        startDungeonSolo();
+      });
+      overlay.querySelector('.queue-panel').insertBefore(
+        timeoutBtn,
+        overlay.querySelector('.btn-cancel-queue')
+      );
+    }
+  }
+
+  setTimeout(updateQueueTimer, 1000);
+}
+
+function cancelQueue() {
+  inQueue = false;
+  queueType = null;
+  callbacks.onCancelQueue?.();
+  hideQueueStatus();
+}
+
+function hideQueueStatus() {
+  const overlay = document.getElementById('queue-status');
+  if (overlay) {
+    overlay.style.display = 'none';
+    // Remove solo button if it was added
+    const soloBtn = overlay.querySelector('.btn-start-solo');
+    if (soloBtn) soloBtn.remove();
+  }
+}
+
+export function onMatchFound(mode: ActiveGameMode, instanceId: bigint) {
+  hideQueueStatus();
+  inQueue = false;
+  queueType = null;
+  activeGameMode = mode;
+
+  stopHubAmbient();
+  document.getElementById('hub-screen').style.display = 'none';
+  inHub = false;
+
+  resetGame();
+  updateGameModeUI();
+
+  if (mode === 'raid') {
+    showRoomLabel('🔥 RAID ARENA 🔥');
+  } else {
+    const tier = DUNGEON_TIERS.find(t => t.tier === selectedDungeonTier);
+    showRoomLabel(`${tier?.icon || '⚔️'} ${tier?.name || 'Dungeon'}`);
+  }
+}
+
+export function returnToHub() {
+  if (activeGameMode === 'open_world') {
+    callbacks.onLeaveOpenWorld?.();
+  }
+  callbacks.onReturnToHub?.();
+  showHub();
 }
 
 function enterDungeon(){
@@ -1905,24 +2584,40 @@ function doAttack(){
   else if(isCrit){dmg=Math.ceil(dmg*1.5);}
   // Gungnir Tip — first hit on each enemy 2x
   
-  // Attack server enemies - server handles damage calculation
-  const serverEnemies = getServerEnemiesForRender();
-  serverEnemies.forEach(e => {
-    if (!e.isAlive) return;
-    const dx = e.x - player.x, dy = e.y - player.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist < atkRange + e.r) {
-      // Visual feedback locally
-      if (isCrit || ragnarok) {
-        dmgNumbers.push({ x: e.x, y: e.y - e.r - 15, val: ragnarok ? 'RAGNAROK!' : 'CRIT!', life: 0.8, vy: -40, color: ragnarok ? '#f97316' : '#fbbf24' });
+  // Open World mode: attack local enemies
+  if (activeGameMode === 'open_world') {
+    enemies.forEach(e => {
+      if (e.hp <= 0) return;
+      const dx = e.x - player.x, dy = e.y - player.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < atkRange + e.r) {
+        const nx = dx / dist, ny = dy / dist;
+        hitEnemy(e, dmg, nx, ny);
+        if (isCrit || ragnarok) {
+          dmgNumbers.push({ x: e.x, y: e.y - e.r - 15, val: ragnarok ? 'RAGNAROK!' : 'CRIT!', life: 0.8, vy: -40, color: ragnarok ? '#f97316' : '#fbbf24' });
+        }
       }
-      // Send attack to server
-      const idx = serverEnemyIds.indexOf(e.serverId);
-      if (idx >= 0) {
-        callbacks.onAttack?.(idx);
+    });
+  } else {
+    // Dungeon/Raid mode: attack server enemies - server handles damage calculation
+    const serverEnemies = getServerEnemiesForRender();
+    serverEnemies.forEach(e => {
+      if (!e.isAlive) return;
+      const dx = e.x - player.x, dy = e.y - player.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < atkRange + e.r) {
+        // Visual feedback locally
+        if (isCrit || ragnarok) {
+          dmgNumbers.push({ x: e.x, y: e.y - e.r - 15, val: ragnarok ? 'RAGNAROK!' : 'CRIT!', life: 0.8, vy: -40, color: ragnarok ? '#f97316' : '#fbbf24' });
+        }
+        // Send attack to server
+        const idx = serverEnemyIds.indexOf(e.serverId);
+        if (idx >= 0) {
+          callbacks.onAttack?.(idx);
+        }
       }
-    }
-  });
+    });
+  }
   // Slash particles scale with level
   const slashSize=20+playerLevel*1.5;
   for(let i=0;i<8;i++){
@@ -1944,7 +2639,7 @@ function doDash(){
   callbacks.onDash?.(player.dashDir.x,player.dashDir.y);
   player.dashTimer=DASH_DUR;
   player.invincible=DASH_DUR+0.1;
-  for(let i=0;i<6;i++){particles.push({x:player.x,y:player.y,vx:(Math.random()-0.5)*60,vy:(Math.random()-0.5)*60,life:0.4,maxLife:0.4,r:4,color:'#60a5fa'});}
+  for(let i=0;i<6;i++){particles.push({x:player.x,y:player.y,vx:(Math.random()-0.5)*60,vy:(Math.random()-0.5)*60,life:0.4,maxLife:0.4,r:4,color:'#00ffff'});}
 }
 
 // Class ability 1: Tank=Taunt, Healer=Healing Zone, DPS=none
@@ -1988,13 +2683,13 @@ function doAbility2(){
           hitCount++;
           const nx=(e.x-player.x)/d,ny=(e.y-player.y)/d;
           e.knockX=nx*150;e.knockY=ny*150;
-          for(let i=0;i<4;i++){particles.push({x:e.x,y:e.y,vx:nx*60+(Math.random()-0.5)*40,vy:ny*60+(Math.random()-0.5)*40,life:0.4,maxLife:0.4,r:4,color:'#60a5fa'});}
+          for(let i=0;i<4;i++){particles.push({x:e.x,y:e.y,vx:nx*60+(Math.random()-0.5)*40,vy:ny*60+(Math.random()-0.5)*40,life:0.4,maxLife:0.4,r:4,color:'#00ffff'});}
         }
       }
     });
     // Shockwave visual
     for(let i=0;i<16;i++){particles.push({x:player.x,y:player.y,vx:Math.cos(i*Math.PI/8)*100,vy:Math.sin(i*Math.PI/8)*100,life:0.5,maxLife:0.5,r:5,color:'#3b82f6'});}
-    if(hitCount>0)dmgNumbers.push({x:player.x,y:player.y-30,val:'KNOCKBACK',life:1,vy:-40,color:'#60a5fa'});
+    if(hitCount>0)dmgNumbers.push({x:player.x,y:player.y-30,val:'KNOCKBACK',life:1,vy:-40,color:'#00ffff'});
   }
 }
 
@@ -2009,7 +2704,7 @@ function hitEnemy(e,dmg,nx,ny){
       // Frontal hit — 75% damage reduction
       dmg=Math.ceil(dmg*0.25);
       sfx('shield_block');
-      for(let i=0;i<4;i++){particles.push({x:e.x+nx*e.r,y:e.y+ny*e.r,vx:(Math.random()-0.5)*60,vy:(Math.random()-0.5)*60,life:0.3,maxLife:0.3,r:2,color:'#60a5fa'});}
+      for(let i=0;i<4;i++){particles.push({x:e.x+nx*e.r,y:e.y+ny*e.r,vx:(Math.random()-0.5)*60,vy:(Math.random()-0.5)*60,life:0.3,maxLife:0.3,r:2,color:'#00ffff'});}
     }
   }
   e.hp-=dmg;
@@ -2086,7 +2781,7 @@ function hitEnemy(e,dmg,nx,ny){
           hitEnemy(o,Math.ceil(dmg*0.3),ndx,ndy);
           chainCount++;
           // Lightning visual
-          particles.push({x:e.x,y:e.y,vx:(o.x-e.x)*2,vy:(o.y-e.y)*2,life:0.2,maxLife:0.2,r:2,color:'#60a5fa'});
+          particles.push({x:e.x,y:e.y,vx:(o.x-e.x)*2,vy:(o.y-e.y)*2,life:0.2,maxLife:0.2,r:2,color:'#00ffff'});
         }
       });
     }
@@ -2100,7 +2795,7 @@ function hitPlayer(dmg,attackerType){
   
   // Valkyrie Aegis — 20% chance negate
   if(hasPassive('valkyrieAegis')&&Math.random()<0.2){
-    dmgNumbers.push({x:player.x,y:player.y-player.r,val:'BLOCKED',life:0.8,vy:-60,color:'#60a5fa'});
+    dmgNumbers.push({x:player.x,y:player.y-player.r,val:'BLOCKED',life:0.8,vy:-60,color:'#00ffff'});
     sfx('shield_block');haptic('light');
     return;
   }
@@ -2201,6 +2896,26 @@ function showRoomLabel(name){
   setTimeout(()=>{el.style.opacity='0';},2000);
 }
 
+function updateOpenWorldRoomIndicator() {
+  const el = document.getElementById('ow-room-indicator');
+  if (el) {
+    const zone = getOpenWorldZone(openWorldRoomX, openWorldRoomY);
+    el.textContent = `Room (${openWorldRoomX}, ${openWorldRoomY}) - ${zone.name}`;
+    el.style.color = zone.color;
+  }
+}
+
+function getOpenWorldZone(rx: number, ry: number): { name: string, color: string, levelRange: [number, number] } {
+  // Center is (5, 5)
+  const center = 5;
+  const dist = Math.max(Math.abs(rx - center), Math.abs(ry - center));
+
+  if (dist <= 1) return { name: 'Town Area', color: '#22c55e', levelRange: [1, 5] };
+  if (dist <= 2) return { name: 'Outer Town', color: '#22c55e', levelRange: [1, 5] };
+  if (dist <= 3) return { name: 'Wilderness', color: '#fbbf24', levelRange: [6, 15] };
+  return { name: 'Danger Zone', color: '#ef4444', levelRange: [16, 25] };
+}
+
 // ─── PROJECTILES ───
 let projectiles=[];
 
@@ -2269,11 +2984,54 @@ function update(dt){
     }
   }
 
+  // Open World room transitions (walk to edge to change room)
+  if (activeGameMode === 'open_world') {
+    const edgeMargin = 30;
+    let newRoomX = openWorldRoomX;
+    let newRoomY = openWorldRoomY;
+    let newX = player.x;
+    let newY = player.y;
+
+    // Check if player is at edge
+    if (player.x < edgeMargin && openWorldRoomX > 0) {
+      newRoomX = openWorldRoomX - 1;
+      newX = GAME_WIDTH - edgeMargin - 10;
+    } else if (player.x > GAME_WIDTH - edgeMargin && openWorldRoomX < 9) {
+      newRoomX = openWorldRoomX + 1;
+      newX = edgeMargin + 10;
+    } else if (player.y < edgeMargin && openWorldRoomY > 0) {
+      newRoomY = openWorldRoomY - 1;
+      newY = GAME_HEIGHT - edgeMargin - 10;
+    } else if (player.y > GAME_HEIGHT - edgeMargin && openWorldRoomY < 9) {
+      newRoomY = openWorldRoomY + 1;
+      newY = edgeMargin + 10;
+    }
+
+    // Transition to new room
+    if (newRoomX !== openWorldRoomX || newRoomY !== openWorldRoomY) {
+      openWorldRoomX = newRoomX;
+      openWorldRoomY = newRoomY;
+      player.x = newX;
+      player.y = newY;
+      // Respawn enemies for the new room
+      spawnOpenWorldEnemies();
+      lootDrops = [];
+      const zone = getOpenWorldZone(openWorldRoomX, openWorldRoomY);
+      showRoomLabel(`🌍 ${zone.name} (${openWorldRoomX}, ${openWorldRoomY})`);
+      updateOpenWorldRoomIndicator();
+    }
+  }
+
   // Throttled position sync (~15Hz)
   const now=performance.now();
   if(now-lastPositionSendTime>66){
     lastPositionSendTime=now;
-    callbacks.onPlayerMove?.(player.x,player.y,player.facing.x,player.facing.y);
+    // Choose callback based on mode
+    if (activeGameMode === 'open_world') {
+      callbacks.onOpenWorldMove?.(openWorldRoomX, openWorldRoomY, player.x, player.y, player.facing.x, player.facing.y);
+    } else {
+      callbacks.onPlayerMove?.(player.x,player.y,player.facing.x,player.facing.y);
+    }
   }
 
   // Interpolate other players toward their server positions
@@ -2285,7 +3043,7 @@ function update(dt){
   // Update/expire player messages
   updateMessages();
 
-  // Local enemies array kept for legacy compatibility but not used for AI
+  // Local enemies AI (Open World mode uses this array)
   enemies.forEach(e=>{
     if(e.hp<=0)return;
     if(e.hit>0){e.hit-=dt;e.x+=e.knockX*dt*4;e.y+=e.knockY*dt*4;e.knockX*=0.9;e.knockY*=0.9;if(!canMove(e.x,e.y,e.r)){e.x-=e.knockX*dt*4;e.y-=e.knockY*dt*4;}return;}
@@ -2464,7 +3222,7 @@ function update(dt){
         const pnx=player.x+kx*0.3,pny=player.y+ky*0.3;
         if(canMove(pnx,pny,player.r)){player.x=pnx;player.y=pny;}
         hitPlayer(Math.ceil(e.dmg*0.5),e.type);
-        for(let i=0;i<6;i++){particles.push({x:e.x+dx/dist*e.r,y:e.y+dy/dist*e.r,vx:dx/dist*40+(Math.random()-0.5)*40,vy:dy/dist*40+(Math.random()-0.5)*40,life:0.3,maxLife:0.3,r:3,color:'#60a5fa'});}
+        for(let i=0;i<6;i++){particles.push({x:e.x+dx/dist*e.r,y:e.y+dy/dist*e.r,vx:dx/dist*40+(Math.random()-0.5)*40,vy:dy/dist*40+(Math.random()-0.5)*40,life:0.3,maxLife:0.3,r:3,color:'#00ffff'});}
       }
     }
     // ─── RANGED (archer) ───
@@ -2578,7 +3336,7 @@ function update(dt){
   player.maxHp=totalMaxHp();
   const fill=document.getElementById('health-bar-fill');
   fill.style.width=(player.hp/player.maxHp*100)+'%';
-  fill.style.background=player.hp>player.maxHp*0.5?'linear-gradient(180deg,#4ade80,#22c55e)':player.hp>player.maxHp*0.25?'linear-gradient(180deg,#fbbf24,#f59e0b)':'linear-gradient(180deg,#ef4444,#dc2626)';
+  fill.style.background=player.hp>player.maxHp*0.5?`linear-gradient(180deg,${THEME.hpBarColor},${THEME.hpBarColor}dd)`:player.hp>player.maxHp*0.25?'linear-gradient(180deg,#ffaa00,#ff8800)':'linear-gradient(180deg,#ff0066,#cc0044)';
   document.getElementById('health-text').textContent=Math.ceil(player.hp)+' / '+player.maxHp;
   document.getElementById('level-label').textContent='Lv '+playerLevel;
   document.getElementById('xp-bar-fill').style.width=(playerXP/xpToLevel(playerLevel)*100)+'%';
@@ -2628,7 +3386,7 @@ function draw(){
   ctx.setTransform(dpr*gameScale,0,0,dpr*gameScale,dpr*gameOffsetX,dpr*gameOffsetY);
 
   // Fill game area background
-  ctx.fillStyle='#1a1a2e';
+  ctx.fillStyle=THEME.background;
   ctx.fillRect(0,0,GAME_WIDTH,GAME_HEIGHT);
   if(!gameStarted)return;
 
@@ -2643,100 +3401,101 @@ function draw(){
     const t=room[y][x];
     const px=x*TILE,py=y*TILE;
     if(t===1){
-      ctx.fillStyle='#1a1a2e';ctx.fillRect(px,py,TILE,TILE);
-      ctx.fillStyle='#252540';ctx.fillRect(px+1,py+1,TILE-2,TILE-2);
+      ctx.fillStyle=THEME.wallOuter;ctx.fillRect(px,py,TILE,TILE);
+      ctx.fillStyle=THEME.wallInner;ctx.fillRect(px+1,py+1,TILE-2,TILE-2);
     }else if(t===2){
       const cleared = !Array.from(serverEnemyStates.values()).some(e => e.isAlive);
-      ctx.fillStyle=cleared?'#065f46':'#7f1d1d';
+      ctx.fillStyle=cleared?'#00aa66':'#aa0044';
       ctx.fillRect(px,py,TILE,TILE);
-      if(cleared){ctx.fillStyle='#10b981';ctx.fillRect(px+8,py+2,TILE-16,TILE-4);}
+      if(cleared){ctx.fillStyle=THEME.lootUncommon;ctx.fillRect(px+8,py+2,TILE-16,TILE-4);}
     }else{
-      ctx.fillStyle=(x+y)%2===0?'#2d3a4a':'#263242';
+      ctx.fillStyle=(x+y)%2===0?THEME.tileA:THEME.tileB;
       ctx.fillRect(px,py,TILE,TILE);
-      ctx.strokeStyle='rgba(255,255,255,0.04)';ctx.strokeRect(px,py,TILE,TILE);
+      ctx.strokeStyle=`rgba(255,255,255,${THEME.gridOpacity})`;ctx.strokeRect(px,py,TILE,TILE);
     }
   }
 
-  // loot drops with rarity visuals
+  // loot drops with rarity visuals (neon glow enhanced)
+  const glowMult = THEME.glowIntensity;
   lootDrops.forEach(l=>{
     ctx.save();
     ctx.translate(l.x,l.y);
     const pulse=0.8+Math.sin(l.glow*4)*0.2;
-    
+
     if(l.type==='gold'){
-      ctx.globalAlpha=0.3+Math.sin(l.glow*3)*0.15;
-      ctx.fillStyle='#fbbf24';
+      ctx.globalAlpha=(0.3+Math.sin(l.glow*3)*0.15)*glowMult;
+      ctx.fillStyle=THEME.lootLegendary;
       ctx.beginPath();ctx.arc(0,0,10*pulse,0,Math.PI*2);ctx.fill();
     }else if(l.type==='card'){
-      // Purple glow for cards
-      ctx.globalAlpha=0.4+Math.sin(l.glow*3)*0.2;
-      ctx.fillStyle='#a855f7';
+      // Neon magenta glow for cards
+      ctx.globalAlpha=(0.4+Math.sin(l.glow*3)*0.2)*glowMult;
+      ctx.fillStyle=THEME.lootEpic;
       ctx.beginPath();ctx.arc(0,0,16*pulse,0,Math.PI*2);ctx.fill();
       // Rotating sparkles
       for(let i=0;i<4;i++){
         const a=l.glow*2+i*Math.PI/2;
-        ctx.fillStyle='#c084fc';
+        ctx.fillStyle='#ff88ff';
         ctx.beginPath();ctx.arc(Math.cos(a)*12,Math.sin(a)*12,2,0,Math.PI*2);ctx.fill();
       }
     }else if(l.type==='gear'){
       const r=l.gear.rarity;
       const color=l.gear.rarityColor;
       if(r==='common'){
-        ctx.globalAlpha=0.2+Math.sin(l.glow*3)*0.1;
-        ctx.fillStyle='#fff';
+        ctx.globalAlpha=(0.2+Math.sin(l.glow*3)*0.1)*glowMult;
+        ctx.fillStyle=THEME.lootCommon;
         ctx.beginPath();ctx.arc(0,0,12*pulse,0,Math.PI*2);ctx.fill();
       }else if(r==='uncommon'){
-        ctx.globalAlpha=0.3+Math.sin(l.glow*3)*0.15;
+        ctx.globalAlpha=(0.3+Math.sin(l.glow*3)*0.15)*glowMult;
         ctx.fillStyle=color;
         ctx.beginPath();ctx.arc(0,0,14*pulse,0,Math.PI*2);ctx.fill();
       }else if(r==='rare'){
-        ctx.globalAlpha=0.35+Math.sin(l.glow*3)*0.2;
+        ctx.globalAlpha=(0.35+Math.sin(l.glow*3)*0.2)*glowMult;
         ctx.fillStyle=color;
         ctx.beginPath();ctx.arc(0,0,16*pulse,0,Math.PI*2);ctx.fill();
         // Sparkle particles
         for(let i=0;i<3;i++){
           const a=l.glow*3+i*2.1;
           const sx=Math.cos(a)*14,sy=Math.sin(a)*14;
-          ctx.globalAlpha=0.6+Math.sin(l.glow*5+i)*0.3;
-          ctx.fillStyle='#93c5fd';
+          ctx.globalAlpha=(0.6+Math.sin(l.glow*5+i)*0.3)*glowMult;
+          ctx.fillStyle='#66ddff';
           ctx.beginPath();ctx.arc(sx,sy,1.5,0,Math.PI*2);ctx.fill();
         }
       }else if(r==='epic'){
-        // Purple glow + rotating particles + light beam
-        ctx.globalAlpha=0.15;
+        // Neon magenta glow + rotating particles + light beam
+        ctx.globalAlpha=0.2*glowMult;
         ctx.fillStyle=color;
         ctx.fillRect(-2,-60,4,60); // light beam
-        ctx.globalAlpha=0.4+Math.sin(l.glow*3)*0.2;
+        ctx.globalAlpha=(0.4+Math.sin(l.glow*3)*0.2)*glowMult;
         ctx.beginPath();ctx.arc(0,0,18*pulse,0,Math.PI*2);ctx.fill();
         for(let i=0;i<5;i++){
           const a=l.glow*2+i*Math.PI*2/5;
-          ctx.globalAlpha=0.7;
-          ctx.fillStyle='#c084fc';
+          ctx.globalAlpha=0.8*glowMult;
+          ctx.fillStyle='#ff88ff';
           ctx.beginPath();ctx.arc(Math.cos(a)*16,Math.sin(a)*16,2,0,Math.PI*2);ctx.fill();
         }
       }else if(r==='legendary'){
-        // ORANGE glow + light PILLAR + particles
-        ctx.globalAlpha=0.25+Math.sin(l.glow*2)*0.1;
-        ctx.fillStyle='#f97316';
+        // Neon amber glow + light PILLAR + particles
+        ctx.globalAlpha=(0.3+Math.sin(l.glow*2)*0.1)*glowMult;
+        ctx.fillStyle=THEME.lootLegendary;
         ctx.fillRect(-3,-120,6,120); // tall light pillar
-        ctx.globalAlpha=0.5+Math.sin(l.glow*3)*0.25;
+        ctx.globalAlpha=(0.5+Math.sin(l.glow*3)*0.25)*glowMult;
         const grad=ctx.createRadialGradient(0,0,5,0,0,24*pulse);
-        grad.addColorStop(0,'#fbbf24');
-        grad.addColorStop(0.5,'#f97316');
-        grad.addColorStop(1,'rgba(249,115,22,0)');
+        grad.addColorStop(0,'#ffff00');
+        grad.addColorStop(0.5,THEME.lootLegendary);
+        grad.addColorStop(1,'rgba(255,170,0,0)');
         ctx.fillStyle=grad;
         ctx.beginPath();ctx.arc(0,0,24*pulse,0,Math.PI*2);ctx.fill();
         // Rotating + rising particles
         for(let i=0;i<8;i++){
           const a=l.glow*1.5+i*Math.PI/4;
           const r2=18+Math.sin(l.glow*3+i)*5;
-          ctx.globalAlpha=0.8;
-          ctx.fillStyle=['#fbbf24','#f97316','#fff'][i%3];
+          ctx.globalAlpha=0.9*glowMult;
+          ctx.fillStyle=['#ffff00',THEME.lootLegendary,'#fff'][i%3];
           ctx.beginPath();ctx.arc(Math.cos(a)*r2,Math.sin(a)*r2-Math.sin(l.glow*4+i)*8,2.5,0,Math.PI*2);ctx.fill();
         }
       }
     }
-    
+
     ctx.globalAlpha=1;
     ctx.font=l.type==='gear'&&(l.gear.rarity==='epic'||l.gear.rarity==='legendary')?'20px system-ui':'16px system-ui';
     ctx.textAlign='center';ctx.textBaseline='middle';
@@ -2764,12 +3523,12 @@ function draw(){
     }else if(e.type==='slime'){
       ctx.fillStyle=e.color;
       ctx.beginPath();ctx.ellipse(0,2,e.r,e.r*0.8,0,0,Math.PI*2);ctx.fill();
-      ctx.fillStyle='#16a34a';
+      ctx.fillStyle='#00aa55';
       ctx.beginPath();ctx.ellipse(0,4,e.r*0.7,e.r*0.5,0,0,Math.PI*2);ctx.fill();
     }else if(e.type==='skeleton'){
       ctx.fillStyle=e.color;
       ctx.fillRect(-e.r,-e.r,e.r*2,e.r*2);
-      ctx.fillStyle='#94a3b8';
+      ctx.fillStyle='#cc00cc';
       ctx.fillRect(-e.r+2,-e.r+2,e.r*2-4,e.r*2-4);
     }else if(e.type==='archer'){
       ctx.fillStyle=e.color;
@@ -2854,11 +3613,16 @@ function draw(){
       ctx.rotate(sa);
       ctx.fillStyle='#3b82f6';
       ctx.fillRect(e.r-4,-8,6,16);
-      ctx.fillStyle='#60a5fa';
+      ctx.fillStyle='#00ffff';
       ctx.fillRect(e.r-3,-6,4,12);
       ctx.restore();
     }
 
+    // Enemy outline (neon theme)
+    if(THEME.enemyOutlines){
+      ctx.strokeStyle='#000';ctx.lineWidth=2;
+      ctx.beginPath();ctx.arc(0,0,e.r,0,Math.PI*2);ctx.stroke();
+    }
     // Eyes (shared for all types)
     const edx=player.x-e.x,edy=player.y-e.y,da=Math.atan2(edy,edx);
     ctx.fillStyle=e.eyeColor;
@@ -2868,7 +3632,7 @@ function draw(){
     // HP bar (always show with Odin's Eye)
     if(e.hp<e.maxHp||hasPassive('odinsEye')){
       ctx.fillStyle='rgba(0,0,0,0.5)';ctx.fillRect(-e.r,-e.r-8,e.r*2,5);
-      ctx.fillStyle='#ef4444';ctx.fillRect(-e.r,-e.r-8,e.r*2*(e.hp/e.maxHp),5);
+      ctx.fillStyle=THEME.damageColor;ctx.fillRect(-e.r,-e.r-8,e.r*2*(e.hp/e.maxHp),5);
     }
     // Burning indicator
     if(e.burning>0){
@@ -2879,7 +3643,7 @@ function draw(){
     }
     // Slow indicator
     if(e.slowTimer>0){
-      ctx.strokeStyle='#60a5fa';ctx.lineWidth=2;ctx.globalAlpha=0.5;
+      ctx.strokeStyle='#00ffff';ctx.lineWidth=2;ctx.globalAlpha=0.5;
       ctx.beginPath();ctx.arc(0,0,e.r+4,0,Math.PI*2);ctx.stroke();
       ctx.globalAlpha=1;
     }
@@ -2985,7 +3749,7 @@ function draw(){
         ctx.rotate(sa);
         ctx.fillStyle = '#3b82f6';
         ctx.fillRect(r - 4, -8, 6, 16);
-        ctx.fillStyle = '#60a5fa';
+        ctx.fillStyle = '#00ffff';
         ctx.fillRect(r - 3, -6, 4, 12);
         ctx.restore();
       } else if (e.enemyType === 'bat') {
@@ -3000,6 +3764,11 @@ function draw(){
         ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
       }
 
+      // Enemy outline (neon theme)
+      if(THEME.enemyOutlines){
+        ctx.strokeStyle='#000';ctx.lineWidth=2;
+        ctx.beginPath();ctx.arc(0,0,r,0,Math.PI*2);ctx.stroke();
+      }
       // Eyes (facing angle from server)
       const edx = Math.cos(e.facingAngle), edy = Math.sin(e.facingAngle);
       ctx.fillStyle = eyeColor;
@@ -3010,7 +3779,7 @@ function draw(){
       // HP bar
       if (e.hp < e.maxHp || hasPassive('odinsEye')) {
         ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(-r, -r - 8, r * 2, 5);
-        ctx.fillStyle = '#ef4444'; ctx.fillRect(-r, -r - 8, r * 2 * (e.hp / e.maxHp), 5);
+        ctx.fillStyle = THEME.damageColor; ctx.fillRect(-r, -r - 8, r * 2 * (e.hp / e.maxHp), 5);
       }
 
       ctx.restore();
@@ -3032,11 +3801,11 @@ function draw(){
   const pr=getPlayerRadius();
   const glowI=getGlowIntensity();
   
-  // Glow ring (level-based)
+  // Glow ring (level-based) - neon cyan glow
   if(glowI>0.05){
     const gradient=ctx.createRadialGradient(0,0,pr,0,0,pr+8+glowI*12);
-    gradient.addColorStop(0,`rgba(251,191,36,${glowI*0.4})`);
-    gradient.addColorStop(1,'rgba(251,191,36,0)');
+    gradient.addColorStop(0,`rgba(0,255,255,${glowI*0.5})`);
+    gradient.addColorStop(1,'rgba(0,255,255,0)');
     ctx.fillStyle=gradient;
     ctx.beginPath();ctx.arc(0,0,pr+8+glowI*12,0,Math.PI*2);ctx.fill();
   }
@@ -3166,6 +3935,20 @@ function draw(){
 
   ctx.restore();
 
+  // Ambient floating particles (neon theme)
+  if(THEME.ambientParticles){
+    drawAmbientParticles();
+  }
+
+  // Vignette effect (neon theme)
+  if(THEME.vignetteEnabled){
+    const vgrad=ctx.createRadialGradient(GAME_WIDTH/2,GAME_HEIGHT/2,GAME_WIDTH*0.3,GAME_WIDTH/2,GAME_HEIGHT/2,GAME_WIDTH*0.7);
+    vgrad.addColorStop(0,'rgba(0,0,0,0)');
+    vgrad.addColorStop(1,`rgba(0,0,0,${THEME.vignetteIntensity})`);
+    ctx.fillStyle=vgrad;
+    ctx.fillRect(0,0,GAME_WIDTH,GAME_HEIGHT);
+  }
+
   // room transition overlay
   if(roomTransition>0){
     ctx.fillStyle=`rgba(0,0,0,${roomTransAlpha})`;
@@ -3180,16 +3963,64 @@ function drawMinimap(){
   mc.clearRect(0,0,80,80);
   mc.fillStyle='rgba(0,0,0,0.5)';
   mc.fillRect(0,0,80,80);
+
+  // Open World minimap: 10x10 grid
+  if (activeGameMode === 'open_world') {
+    const cellSize = 7;
+    const startX = (80 - 10 * cellSize) / 2;
+    const startY = (80 - 10 * cellSize) / 2;
+
+    for (let rx = 0; rx < 10; rx++) {
+      for (let ry = 0; ry < 10; ry++) {
+        const cx = startX + rx * cellSize;
+        const cy = startY + ry * cellSize;
+
+        // Zone color
+        const zone = getOpenWorldZone(rx, ry);
+        const alpha = (rx === openWorldRoomX && ry === openWorldRoomY) ? 1 : 0.4;
+
+        mc.fillStyle = zone.color + (alpha < 1 ? '66' : '');
+        mc.fillRect(cx, cy, cellSize - 1, cellSize - 1);
+
+        // Current room highlight
+        if (rx === openWorldRoomX && ry === openWorldRoomY) {
+          mc.strokeStyle = '#fff';
+          mc.lineWidth = 1;
+          mc.strokeRect(cx, cy, cellSize - 1, cellSize - 1);
+        }
+
+        // Town marker (center)
+        if (rx === 5 && ry === 5) {
+          mc.fillStyle = '#fff';
+          mc.fillRect(cx + 2, cy + 2, 2, 2);
+        }
+      }
+    }
+
+    // Hotspot markers (cardinal directions from center, 4 cells out)
+    [[5, 1], [5, 8], [1, 5], [8, 5]].forEach(([hx, hy]) => {
+      const cx = startX + hx * cellSize;
+      const cy = startY + hy * cellSize;
+      mc.fillStyle = '#fbbf24';
+      mc.beginPath();
+      mc.arc(cx + cellSize / 2, cy + cellSize / 2, 2, 0, Math.PI * 2);
+      mc.fill();
+    });
+
+    return;
+  }
+
+  // Dungeon/Raid minimap: vertical room list
   const totalRooms=dungeonRooms.length;
   const roomH=12,roomW=16,gap=4;
   const startY=(80-(totalRooms*(roomH+gap)-gap))/2;
   for(let i=0;i<totalRooms;i++){
     const rx=(80-roomW)/2,ry=startY+i*(roomH+gap);
-    mc.fillStyle=i===currentRoom?'#3b82f6':'#475569';
-    if(i<currentRoom)mc.fillStyle='#22c55e';
+    mc.fillStyle=i===currentRoom?'#00ffff':'#334455';
+    if(i<currentRoom)mc.fillStyle='#00ff88';
     mc.fillRect(rx,ry,roomW,roomH);
     if(i===currentRoom){mc.fillStyle='#fbbf24';mc.fillRect(rx+6,ry+3,4,6);}
-    if(dungeonRooms[i].isBoss){mc.fillStyle='#ef4444';mc.fillRect(rx+2,ry+2,3,3);}
+    if(dungeonRooms[i].isBoss){mc.fillStyle='#ff0066';mc.fillRect(rx+2,ry+2,3,3);}
   }
 }
 
@@ -3644,16 +4475,26 @@ export function restorePlayerClass(pClass: string) {
   }
 }
 
-// Get class-specific color for player rendering
+// Get class-specific color for player rendering (neon theme)
 export function getClassColor(pClass: PlayerClass): { main: string; mid: string; light: string } {
   switch (pClass) {
     case 'tank':
-      return { main: '#3b82f6', mid: '#2563eb', light: '#93c5fd' }; // blue
+      return { main: '#00aaff', mid: '#0088cc', light: '#66ccff' }; // neon blue
     case 'healer':
-      return { main: '#22c55e', mid: '#16a34a', light: '#86efac' }; // green
+      return { main: '#00ffff', mid: '#00cccc', light: '#80ffff' }; // neon cyan
     case 'dps':
-      return { main: '#ef4444', mid: '#dc2626', light: '#fca5a5' }; // red
+      return { main: '#ff0066', mid: '#cc0055', light: '#ff6699' }; // neon pink
     default:
-      return { main: '#3b82f6', mid: '#2563eb', light: '#93c5fd' };
+      return { main: '#00ffff', mid: '#00cccc', light: '#80ffff' };
   }
+}
+
+// Get current active game mode
+export function getActiveGameMode(): ActiveGameMode {
+  return activeGameMode;
+}
+
+// Get current Open World room coordinates
+export function getOpenWorldRoom(): { x: number, y: number } {
+  return { x: openWorldRoomX, y: openWorldRoomY };
 }

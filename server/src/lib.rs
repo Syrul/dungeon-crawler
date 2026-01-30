@@ -196,6 +196,150 @@ pub struct ActiveHealingZone {
     pub duration_remaining: f32,
 }
 
+// ─── Game Mode Tables ────────────────────────────────────────────────────────────
+
+/// Current game mode for a player
+#[table(name = player_game_mode, public)]
+pub struct PlayerGameMode {
+    #[primary_key]
+    identity: Identity,
+    pub mode: String,  // "hub", "open_world", "dungeon", "raid"
+    pub instance_id: Option<u64>,
+}
+
+/// Open World instance (persistent shared world, sharded)
+#[table(name = open_world_instance, public)]
+pub struct OpenWorldInstance {
+    #[primary_key]
+    #[auto_inc]
+    pub id: u64,
+    pub created_at: u64,
+    pub player_count: u32,
+}
+
+/// Enemy in Open World (fixed spawn points with respawn timers)
+#[table(name = open_world_enemy, public)]
+pub struct OpenWorldEnemy {
+    #[primary_key]
+    #[auto_inc]
+    pub id: u64,
+    pub instance_id: u64,
+    pub room_x: i32,
+    pub room_y: i32,
+    pub spawn_point_idx: u32,
+    pub enemy_type: String,
+    pub hp: i32,
+    pub max_hp: i32,
+    pub atk: i32,
+    pub x: f32,
+    pub y: f32,
+    pub is_alive: bool,
+    pub respawn_at: u64,  // Unix timestamp in ms for respawn (0 if alive)
+    pub ai_state: String,
+    pub state_timer: f32,
+    pub target_x: f32,
+    pub target_y: f32,
+    pub facing_angle: f32,
+}
+
+/// Player position in Open World
+#[table(name = open_world_player, public)]
+pub struct OpenWorldPlayer {
+    #[primary_key]
+    identity: Identity,
+    pub instance_id: u64,
+    pub room_x: i32,
+    pub room_y: i32,
+    pub x: f32,
+    pub y: f32,
+    pub facing_x: f32,
+    pub facing_y: f32,
+    pub name: String,
+    pub level: u32,
+    pub player_class: String,
+    pub weapon_icon: String,
+    pub armor_icon: String,
+    pub accessory_icon: String,
+}
+
+/// Dungeon queue for co-op matchmaking
+#[table(name = dungeon_queue, public)]
+pub struct DungeonQueue {
+    #[primary_key]
+    identity: Identity,
+    pub dungeon_tier: u32,  // 1, 2, or 3
+    pub difficulty: u32,    // Star rating 1-5
+    pub queued_at: u64,     // Unix timestamp in ms
+}
+
+/// Raid queue for role-based matchmaking
+#[table(name = raid_queue, public)]
+pub struct RaidQueue {
+    #[primary_key]
+    identity: Identity,
+    pub player_class: String,  // "tank", "healer", or "dps"
+    pub queued_at: u64,
+}
+
+/// Active raid instance
+#[table(name = raid_instance, public)]
+pub struct RaidInstance {
+    #[primary_key]
+    #[auto_inc]
+    pub id: u64,
+    pub started_at: u64,
+    pub boss_hp: i32,
+    pub boss_max_hp: i32,
+    pub boss_phase: u32,
+    pub wipe_count: u32,
+}
+
+/// Raid participant (links player to raid instance)
+#[table(name = raid_participant, public)]
+pub struct RaidParticipant {
+    #[primary_key]
+    #[auto_inc]
+    pub id: u64,
+    pub raid_id: u64,
+    pub player_identity: Identity,
+    pub player_class: String,
+    pub disconnected_at: Option<u64>,  // For reconnect window
+}
+
+/// Player raid cooldown (2 min after wipe)
+#[table(name = raid_cooldown, public)]
+pub struct RaidCooldown {
+    #[primary_key]
+    identity: Identity,
+    pub cooldown_until: u64,  // Unix timestamp in ms
+}
+
+/// Daily raid clear tracking (for legendary drop)
+#[table(name = daily_raid_clear, public)]
+pub struct DailyRaidClear {
+    #[primary_key]
+    identity: Identity,
+    pub last_clear_day: u32,  // Day number since epoch
+}
+
+/// Scheduler table for matchmaking ticks
+#[table(name = matchmaking_tick_schedule, scheduled(tick_matchmaking))]
+pub struct MatchmakingTickSchedule {
+    #[primary_key]
+    #[auto_inc]
+    scheduled_id: u64,
+    scheduled_at: ScheduleAt,
+}
+
+/// Scheduler table for open world respawns
+#[table(name = open_world_tick_schedule, scheduled(tick_open_world))]
+pub struct OpenWorldTickSchedule {
+    #[primary_key]
+    #[auto_inc]
+    scheduled_id: u64,
+    scheduled_at: ScheduleAt,
+}
+
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
 const ATTACK_RANGE: f32 = 100.0;
@@ -243,6 +387,22 @@ const SHIELD_RECOVER_TIME: f32 = 0.5;
 const ARCHER_KITE_DISTANCE: f32 = 120.0;
 const ARCHER_SHOOT_CD: f32 = 2.0;
 const ARCHER_SHOOT_RANGE: f32 = 180.0;
+
+// Open World Constants
+const OPEN_WORLD_SIZE: i32 = 10;  // 10x10 grid of rooms
+const OPEN_WORLD_SPAWN_POINTS_PER_ROOM: u32 = 10;  // 8-12 fixed spawn points per room
+const OPEN_WORLD_BASE_RESPAWN_MS: u64 = 45000;  // 45 second base respawn
+const OPEN_WORLD_HOTSPOT_RESPAWN_MS: u64 = 20000;  // 20 second respawn at hotspots
+const OPEN_WORLD_MAX_PLAYERS_PER_SHARD: u32 = 50;
+
+// Dungeon tier levels
+const DUNGEON_TIER_1_MAX_LEVEL: u32 = 5;
+const DUNGEON_TIER_2_MAX_LEVEL: u32 = 10;
+const DUNGEON_TIER_3_MAX_LEVEL: u32 = 15;
+
+// Raid constants
+const RAID_RECONNECT_WINDOW_MS: u64 = 60000;  // 60 seconds
+const RAID_WIPE_COOLDOWN_MS: u64 = 120000;  // 2 minutes
 
 // ─── Account Reducers ──────────────────────────────────────────────────────────
 
@@ -2177,5 +2337,796 @@ fn cleanup_dungeon(ctx: &ReducerContext, dungeon_id: u64) {
         .collect();
     for id in messages {
         ctx.db.player_message().id().delete(id);
+    }
+}
+
+// ─── Game Mode Reducers ─────────────────────────────────────────────────────────
+
+/// Set player's current game mode
+#[reducer]
+pub fn set_game_mode(ctx: &ReducerContext, mode: String) -> Result<(), String> {
+    if ctx.db.player().identity().find(ctx.sender).is_none() {
+        return Err("Player not found".into());
+    }
+
+    let valid_modes = ["hub", "open_world", "dungeon", "raid"];
+    if !valid_modes.contains(&mode.as_str()) {
+        return Err("Invalid game mode".into());
+    }
+
+    if let Some(existing) = ctx.db.player_game_mode().identity().find(ctx.sender) {
+        ctx.db.player_game_mode().identity().update(PlayerGameMode {
+            mode,
+            instance_id: None,
+            ..existing
+        });
+    } else {
+        ctx.db.player_game_mode().insert(PlayerGameMode {
+            identity: ctx.sender,
+            mode,
+            instance_id: None,
+        });
+    }
+
+    Ok(())
+}
+
+/// Enter Open World mode
+#[reducer]
+pub fn enter_open_world(ctx: &ReducerContext) -> Result<(), String> {
+    let player = ctx.db.player().identity().find(ctx.sender)
+        .ok_or("Player not found")?;
+
+    // Find or create an open world instance with room for more players
+    let instance = ctx.db.open_world_instance().iter()
+        .find(|i| i.player_count < OPEN_WORLD_MAX_PLAYERS_PER_SHARD);
+
+    let instance_id = if let Some(inst) = instance {
+        // Join existing instance
+        ctx.db.open_world_instance().id().update(OpenWorldInstance {
+            player_count: inst.player_count + 1,
+            ..inst
+        });
+        inst.id
+    } else {
+        // Create new instance
+        let timestamp = ctx.timestamp.to_duration_since_unix_epoch()
+            .unwrap_or_default().as_millis() as u64;
+        let new_inst = ctx.db.open_world_instance().insert(OpenWorldInstance {
+            id: 0,
+            created_at: timestamp,
+            player_count: 1,
+        });
+
+        // Spawn enemies for all rooms in the new instance
+        spawn_open_world_enemies(ctx, new_inst.id);
+
+        // Start the open world tick scheduler if not running
+        if ctx.db.open_world_tick_schedule().iter().count() == 0 {
+            schedule_open_world_tick(ctx);
+        }
+
+        new_inst.id
+    };
+
+    // Spawn player at town center (5, 5)
+    ctx.db.open_world_player().insert(OpenWorldPlayer {
+        identity: ctx.sender,
+        instance_id,
+        room_x: 5,
+        room_y: 5,
+        x: ROOM_W / 2.0,
+        y: ROOM_H / 2.0,
+        facing_x: 0.0,
+        facing_y: -1.0,
+        name: player.name.clone(),
+        level: player.level,
+        player_class: player.player_class.clone(),
+        weapon_icon: String::new(),
+        armor_icon: String::new(),
+        accessory_icon: String::new(),
+    });
+
+    // Update game mode
+    if let Some(gm) = ctx.db.player_game_mode().identity().find(ctx.sender) {
+        ctx.db.player_game_mode().identity().update(PlayerGameMode {
+            mode: "open_world".to_string(),
+            instance_id: Some(instance_id),
+            ..gm
+        });
+    } else {
+        ctx.db.player_game_mode().insert(PlayerGameMode {
+            identity: ctx.sender,
+            mode: "open_world".to_string(),
+            instance_id: Some(instance_id),
+        });
+    }
+
+    log::info!("Player {:?} entered Open World instance {}", ctx.sender, instance_id);
+    Ok(())
+}
+
+/// Leave Open World mode
+#[reducer]
+pub fn leave_open_world(ctx: &ReducerContext) -> Result<(), String> {
+    let ow_player = ctx.db.open_world_player().identity().find(ctx.sender)
+        .ok_or("Not in Open World")?;
+
+    let instance_id = ow_player.instance_id;
+    ctx.db.open_world_player().identity().delete(ctx.sender);
+
+    // Decrement player count
+    if let Some(inst) = ctx.db.open_world_instance().id().find(instance_id) {
+        let new_count = inst.player_count.saturating_sub(1);
+        if new_count == 0 {
+            // Delete empty instance and its enemies
+            cleanup_open_world_instance(ctx, instance_id);
+        } else {
+            ctx.db.open_world_instance().id().update(OpenWorldInstance {
+                player_count: new_count,
+                ..inst
+            });
+        }
+    }
+
+    // Update game mode to hub
+    if let Some(gm) = ctx.db.player_game_mode().identity().find(ctx.sender) {
+        ctx.db.player_game_mode().identity().update(PlayerGameMode {
+            mode: "hub".to_string(),
+            instance_id: None,
+            ..gm
+        });
+    }
+
+    log::info!("Player {:?} left Open World", ctx.sender);
+    Ok(())
+}
+
+/// Update player position in Open World
+#[reducer]
+pub fn update_open_world_position(
+    ctx: &ReducerContext,
+    room_x: i32,
+    room_y: i32,
+    x: f32,
+    y: f32,
+    facing_x: f32,
+    facing_y: f32,
+    weapon_icon: String,
+    armor_icon: String,
+    accessory_icon: String,
+) -> Result<(), String> {
+    let ow_player = ctx.db.open_world_player().identity().find(ctx.sender)
+        .ok_or("Not in Open World")?;
+
+    // Validate room bounds
+    if room_x < 0 || room_x >= OPEN_WORLD_SIZE || room_y < 0 || room_y >= OPEN_WORLD_SIZE {
+        return Err("Invalid room coordinates".into());
+    }
+
+    ctx.db.open_world_player().identity().update(OpenWorldPlayer {
+        room_x,
+        room_y,
+        x,
+        y,
+        facing_x,
+        facing_y,
+        weapon_icon,
+        armor_icon,
+        accessory_icon,
+        ..ow_player
+    });
+
+    Ok(())
+}
+
+/// Attack an enemy in Open World
+#[reducer]
+pub fn attack_open_world(ctx: &ReducerContext, enemy_id: u64) -> Result<(), String> {
+    let player = ctx.db.player().identity().find(ctx.sender)
+        .ok_or("Player not found")?;
+    let ow_player = ctx.db.open_world_player().identity().find(ctx.sender)
+        .ok_or("Not in Open World")?;
+    let enemy = ctx.db.open_world_enemy().id().find(enemy_id)
+        .ok_or("Enemy not found")?;
+
+    if !enemy.is_alive {
+        return Err("Enemy already dead".into());
+    }
+
+    // Check if enemy is in same room
+    if enemy.room_x != ow_player.room_x || enemy.room_y != ow_player.room_y {
+        return Err("Enemy not in same room".into());
+    }
+
+    // Range check
+    let dx = ow_player.x - enemy.x;
+    let dy = ow_player.y - enemy.y;
+    let dist = (dx * dx + dy * dy).sqrt();
+    if dist > ATTACK_RANGE {
+        return Err("Target out of range".into());
+    }
+
+    // Calculate damage
+    let damage = player.atk.max(1);
+    let new_hp = enemy.hp - damage;
+
+    // Calculate XP with level scaling
+    let enemy_level = get_enemy_level_for_room(enemy.room_x, enemy.room_y);
+    let level_diff = enemy_level as i32 - player.level as i32;
+    let xp_mult = if level_diff <= -5 {
+        0.25  // 25% XP if 5+ levels above enemy
+    } else if level_diff >= 5 {
+        1.5   // 150% XP if 5+ levels below enemy
+    } else {
+        1.0
+    };
+
+    if new_hp <= 0 {
+        // Enemy dies
+        let base_xp = get_enemy_xp(&enemy.enemy_type);
+        let scaled_xp = (base_xp as f32 * xp_mult) as u64;
+
+        // Set respawn timer
+        let is_hotspot = is_hotspot_room(enemy.room_x, enemy.room_y);
+        let respawn_delay = if is_hotspot { OPEN_WORLD_HOTSPOT_RESPAWN_MS } else { OPEN_WORLD_BASE_RESPAWN_MS };
+        let respawn_at = ctx.timestamp.to_duration_since_unix_epoch()
+            .unwrap_or_default().as_millis() as u64 + respawn_delay;
+
+        ctx.db.open_world_enemy().id().update(OpenWorldEnemy {
+            hp: 0,
+            is_alive: false,
+            respawn_at,
+            ..enemy
+        });
+
+        // Award XP
+        let new_xp = player.xp + scaled_xp;
+        let (new_level, new_max_hp, new_atk, new_def) = check_level_up(
+            player.level, new_xp, player.max_hp, player.atk, player.def,
+        );
+        ctx.db.player().identity().update(Player {
+            xp: new_xp,
+            level: new_level,
+            max_hp: new_max_hp,
+            atk: new_atk,
+            def: new_def,
+            ..player
+        });
+
+        log::info!("Open World enemy {} killed, +{}xp (scaled)", enemy_id, scaled_xp);
+    } else {
+        ctx.db.open_world_enemy().id().update(OpenWorldEnemy {
+            hp: new_hp,
+            ..enemy
+        });
+    }
+
+    Ok(())
+}
+
+/// Queue for dungeon matchmaking
+#[reducer]
+pub fn queue_dungeon(ctx: &ReducerContext, dungeon_tier: u32, difficulty: u32) -> Result<(), String> {
+    if ctx.db.player().identity().find(ctx.sender).is_none() {
+        return Err("Player not found".into());
+    }
+
+    if dungeon_tier < 1 || dungeon_tier > 3 {
+        return Err("Invalid dungeon tier (1-3)".into());
+    }
+
+    if difficulty < 1 || difficulty > 5 {
+        return Err("Invalid difficulty (1-5 stars)".into());
+    }
+
+    // Cancel any existing queue
+    if ctx.db.dungeon_queue().identity().find(ctx.sender).is_some() {
+        ctx.db.dungeon_queue().identity().delete(ctx.sender);
+    }
+    if ctx.db.raid_queue().identity().find(ctx.sender).is_some() {
+        ctx.db.raid_queue().identity().delete(ctx.sender);
+    }
+
+    let queued_at = ctx.timestamp.to_duration_since_unix_epoch()
+        .unwrap_or_default().as_millis() as u64;
+
+    ctx.db.dungeon_queue().insert(DungeonQueue {
+        identity: ctx.sender,
+        dungeon_tier,
+        difficulty,
+        queued_at,
+    });
+
+    // Start matchmaking scheduler if not running
+    if ctx.db.matchmaking_tick_schedule().iter().count() == 0 {
+        schedule_matchmaking_tick(ctx);
+    }
+
+    log::info!("Player {:?} queued for dungeon tier {} difficulty {}", ctx.sender, dungeon_tier, difficulty);
+    Ok(())
+}
+
+/// Start dungeon solo immediately
+#[reducer]
+pub fn start_dungeon_solo(ctx: &ReducerContext, dungeon_tier: u32, difficulty: u32) -> Result<(), String> {
+    let player = ctx.db.player().identity().find(ctx.sender)
+        .ok_or("Player not found")?;
+
+    if dungeon_tier < 1 || dungeon_tier > 3 {
+        return Err("Invalid dungeon tier (1-3)".into());
+    }
+
+    // Cancel any existing queue
+    if ctx.db.dungeon_queue().identity().find(ctx.sender).is_some() {
+        ctx.db.dungeon_queue().identity().delete(ctx.sender);
+    }
+
+    // Create dungeon with tier-specific room
+    let seed = ctx.timestamp.to_duration_since_unix_epoch()
+        .unwrap_or_default().as_micros() as u64;
+
+    // Difficulty scales enemy stats: +15% per star above 1
+    let stat_mult = 1.0 + (difficulty.saturating_sub(1) as f32 * 0.15);
+
+    let dungeon = ctx.db.active_dungeon().insert(ActiveDungeon {
+        id: 0,
+        owner_identity: ctx.sender,
+        depth: dungeon_tier,  // Use tier as depth for enemy scaling
+        current_room: 0,
+        total_rooms: 1,  // Single room for tiered dungeons
+        seed,
+    });
+
+    ctx.db.dungeon_participant().insert(DungeonParticipant {
+        id: 0,
+        dungeon_id: dungeon.id,
+        player_identity: ctx.sender,
+    });
+
+    // Spawn enemies for the tier's room (room_index = tier - 1)
+    spawn_enemies_for_tier(ctx, dungeon.id, dungeon_tier, stat_mult, seed);
+
+    // Start enemy AI tick
+    if ctx.db.enemy_tick_schedule().iter().count() == 0 {
+        schedule_enemy_tick(ctx);
+    }
+
+    // Initialize player position
+    ctx.db.player_position().insert(PlayerPosition {
+        identity: ctx.sender,
+        dungeon_id: dungeon.id,
+        x: 270.0,
+        y: 360.0,
+        facing_x: 0.0,
+        facing_y: -1.0,
+        name: player.name.clone(),
+        level: player.level,
+        player_class: player.player_class.clone(),
+        weapon_icon: String::new(),
+        armor_icon: String::new(),
+        accessory_icon: String::new(),
+    });
+
+    // Update game mode
+    if let Some(gm) = ctx.db.player_game_mode().identity().find(ctx.sender) {
+        ctx.db.player_game_mode().identity().update(PlayerGameMode {
+            mode: "dungeon".to_string(),
+            instance_id: Some(dungeon.id),
+            ..gm
+        });
+    }
+
+    log::info!("Started solo dungeon tier {} difficulty {} for {:?}", dungeon_tier, difficulty, ctx.sender);
+    Ok(())
+}
+
+/// Queue for raid matchmaking
+#[reducer]
+pub fn queue_raid(ctx: &ReducerContext) -> Result<(), String> {
+    let player = ctx.db.player().identity().find(ctx.sender)
+        .ok_or("Player not found")?;
+
+    // Check raid cooldown
+    if let Some(cd) = ctx.db.raid_cooldown().identity().find(ctx.sender) {
+        let now = ctx.timestamp.to_duration_since_unix_epoch()
+            .unwrap_or_default().as_millis() as u64;
+        if now < cd.cooldown_until {
+            return Err("Raid on cooldown".into());
+        }
+    }
+
+    // Cancel any existing queue
+    if ctx.db.dungeon_queue().identity().find(ctx.sender).is_some() {
+        ctx.db.dungeon_queue().identity().delete(ctx.sender);
+    }
+    if ctx.db.raid_queue().identity().find(ctx.sender).is_some() {
+        ctx.db.raid_queue().identity().delete(ctx.sender);
+    }
+
+    let queued_at = ctx.timestamp.to_duration_since_unix_epoch()
+        .unwrap_or_default().as_millis() as u64;
+
+    ctx.db.raid_queue().insert(RaidQueue {
+        identity: ctx.sender,
+        player_class: player.player_class.clone(),
+        queued_at,
+    });
+
+    // Start matchmaking scheduler if not running
+    if ctx.db.matchmaking_tick_schedule().iter().count() == 0 {
+        schedule_matchmaking_tick(ctx);
+    }
+
+    log::info!("Player {:?} ({}) queued for raid", ctx.sender, player.player_class);
+    Ok(())
+}
+
+/// Cancel queue (both dungeon and raid)
+#[reducer]
+pub fn cancel_queue(ctx: &ReducerContext) -> Result<(), String> {
+    if ctx.db.dungeon_queue().identity().find(ctx.sender).is_some() {
+        ctx.db.dungeon_queue().identity().delete(ctx.sender);
+    }
+    if ctx.db.raid_queue().identity().find(ctx.sender).is_some() {
+        ctx.db.raid_queue().identity().delete(ctx.sender);
+    }
+    log::info!("Player {:?} cancelled queue", ctx.sender);
+    Ok(())
+}
+
+/// Matchmaking tick - runs every second
+#[reducer]
+pub fn tick_matchmaking(ctx: &ReducerContext, _arg: MatchmakingTickSchedule) {
+    let now = ctx.timestamp.to_duration_since_unix_epoch()
+        .unwrap_or_default().as_millis() as u64;
+
+    // Process dungeon queues
+    process_dungeon_queues(ctx, now);
+
+    // Process raid queues
+    process_raid_queues(ctx, now);
+
+    // Note: ScheduleAt::Interval auto-repeats
+}
+
+/// Open World tick - handles respawns
+#[reducer]
+pub fn tick_open_world(ctx: &ReducerContext, _arg: OpenWorldTickSchedule) {
+    let now = ctx.timestamp.to_duration_since_unix_epoch()
+        .unwrap_or_default().as_millis() as u64;
+
+    // Respawn dead enemies whose timer has expired
+    let dead_enemies: Vec<OpenWorldEnemy> = ctx.db.open_world_enemy().iter()
+        .filter(|e| !e.is_alive && e.respawn_at > 0 && e.respawn_at <= now)
+        .collect();
+
+    for enemy in dead_enemies {
+        // Get appropriate level for the room
+        let level = get_enemy_level_for_room(enemy.room_x, enemy.room_y);
+        let (hp, atk) = get_enemy_stats(&enemy.enemy_type, level);
+
+        ctx.db.open_world_enemy().id().update(OpenWorldEnemy {
+            hp,
+            max_hp: hp,
+            atk,
+            is_alive: true,
+            respawn_at: 0,
+            ai_state: "chase".to_string(),
+            state_timer: 0.0,
+            ..enemy
+        });
+    }
+}
+
+// ─── Game Mode Helper Functions ─────────────────────────────────────────────────
+
+fn schedule_matchmaking_tick(ctx: &ReducerContext) {
+    ctx.db.matchmaking_tick_schedule().insert(MatchmakingTickSchedule {
+        scheduled_id: 0,
+        scheduled_at: ScheduleAt::Interval(TimeDuration::from_micros(1_000_000)), // 1 second
+    });
+}
+
+fn schedule_open_world_tick(ctx: &ReducerContext) {
+    ctx.db.open_world_tick_schedule().insert(OpenWorldTickSchedule {
+        scheduled_id: 0,
+        scheduled_at: ScheduleAt::Interval(TimeDuration::from_micros(1_000_000)), // 1 second
+    });
+}
+
+fn get_enemy_level_for_room(room_x: i32, room_y: i32) -> u32 {
+    // Center (5,5) is level 1-5
+    // Mid-ring is level 6-15
+    // Outer ring is level 16+
+    let center = OPEN_WORLD_SIZE / 2;
+    let dist_from_center = ((room_x - center).abs().max((room_y - center).abs())) as u32;
+
+    match dist_from_center {
+        0 | 1 => 1 + dist_from_center,  // Center: 1-2
+        2 => 5,  // Near center: 5
+        3 => 10, // Mid: 10
+        4 => 15, // Outer mid: 15
+        _ => 20, // Edge: 20
+    }
+}
+
+fn is_hotspot_room(room_x: i32, room_y: i32) -> bool {
+    // Hotspots at cardinal directions from center
+    let center = OPEN_WORLD_SIZE / 2;
+    (room_x == center && (room_y == 1 || room_y == OPEN_WORLD_SIZE - 2)) ||
+    (room_y == center && (room_x == 1 || room_x == OPEN_WORLD_SIZE - 2))
+}
+
+fn get_enemy_type_for_zone(level: u32) -> String {
+    match level {
+        1..=5 => ["slime", "bat", "skeleton"][level as usize % 3].to_string(),
+        6..=10 => ["skeleton", "archer", "wolf"][level as usize % 3].to_string(),
+        11..=15 => ["charger", "bomber", "shield_knight"][level as usize % 3].to_string(),
+        _ => ["necromancer", "charger", "shield_knight"][level as usize % 3].to_string(),
+    }
+}
+
+fn spawn_open_world_enemies(ctx: &ReducerContext, instance_id: u64) {
+    for rx in 0..OPEN_WORLD_SIZE {
+        for ry in 0..OPEN_WORLD_SIZE {
+            // Skip town center (no enemies)
+            if rx == OPEN_WORLD_SIZE / 2 && ry == OPEN_WORLD_SIZE / 2 {
+                continue;
+            }
+
+            let level = get_enemy_level_for_room(rx, ry);
+            let num_spawns = if is_hotspot_room(rx, ry) { 12 } else { 8 };
+
+            for spawn_idx in 0..num_spawns {
+                let enemy_type = get_enemy_type_for_zone(level);
+                let (hp, atk) = get_enemy_stats(&enemy_type, level);
+
+                // Distribute spawn points around the room
+                let angle = (spawn_idx as f32 / num_spawns as f32) * std::f32::consts::TAU;
+                let radius = 150.0 + (spawn_idx as f32 * 17.0) % 80.0;
+                let x = ROOM_W / 2.0 + angle.cos() * radius;
+                let y = ROOM_H / 2.0 + angle.sin() * radius;
+
+                ctx.db.open_world_enemy().insert(OpenWorldEnemy {
+                    id: 0,
+                    instance_id,
+                    room_x: rx,
+                    room_y: ry,
+                    spawn_point_idx: spawn_idx,
+                    enemy_type,
+                    hp,
+                    max_hp: hp,
+                    atk,
+                    x,
+                    y,
+                    is_alive: true,
+                    respawn_at: 0,
+                    ai_state: "chase".to_string(),
+                    state_timer: 0.0,
+                    target_x: x,
+                    target_y: y,
+                    facing_angle: angle,
+                });
+            }
+        }
+    }
+}
+
+fn cleanup_open_world_instance(ctx: &ReducerContext, instance_id: u64) {
+    // Delete all enemies
+    let enemies: Vec<u64> = ctx.db.open_world_enemy().iter()
+        .filter(|e| e.instance_id == instance_id)
+        .map(|e| e.id)
+        .collect();
+    for id in enemies {
+        ctx.db.open_world_enemy().id().delete(id);
+    }
+
+    // Delete instance
+    ctx.db.open_world_instance().id().delete(instance_id);
+}
+
+fn spawn_enemies_for_tier(ctx: &ReducerContext, dungeon_id: u64, tier: u32, stat_mult: f32, _seed: u64) {
+    // Tier 1: slimes, skeletons (Training Grounds)
+    // Tier 2: archers, chargers, shield_knight (Tactical Chamber)
+    // Tier 3: wolves, necromancer, bomber (The Gauntlet)
+    let enemy_types: Vec<&str> = match tier {
+        1 => vec!["slime", "slime", "skeleton", "bat"],
+        2 => vec!["archer", "charger", "skeleton", "shield_knight"],
+        3 => vec!["wolf", "wolf", "necromancer", "bomber"],
+        _ => vec!["slime", "skeleton"],
+    };
+
+    for (i, et) in enemy_types.iter().enumerate() {
+        let (base_hp, base_atk) = get_enemy_stats(et, tier);
+        let hp = (base_hp as f32 * stat_mult) as i32;
+        let atk = (base_atk as f32 * stat_mult) as i32;
+
+        let angle = (i as f32 / enemy_types.len() as f32) * std::f32::consts::TAU;
+        let radius = 150.0 + (i as f32 * 20.0);
+        let x = ROOM_W / 2.0 + angle.cos() * radius;
+        let y = ROOM_H / 2.0 + angle.sin() * radius;
+
+        let (initial_state, pack_id) = match *et {
+            "charger" => ("idle".to_string(), None),
+            "wolf" => ("orbit".to_string(), Some(dungeon_id)),
+            "bomber" => ("chase".to_string(), None),
+            "necromancer" => ("flee".to_string(), None),
+            "shield_knight" => ("advance".to_string(), None),
+            "archer" => ("kite".to_string(), None),
+            _ => ("chase".to_string(), None),
+        };
+
+        ctx.db.dungeon_enemy().insert(DungeonEnemy {
+            id: 0,
+            dungeon_id,
+            room_index: 0,
+            enemy_type: et.to_string(),
+            x,
+            y,
+            hp,
+            max_hp: hp,
+            atk,
+            is_alive: true,
+            ai_state: initial_state,
+            state_timer: 0.0,
+            target_x: x,
+            target_y: y,
+            facing_angle: angle,
+            pack_id,
+            current_target: None,
+            is_taunted: false,
+            taunted_by: None,
+            taunt_timer: 0.0,
+            is_boss: false,
+            boss_phase: 0,
+        });
+    }
+}
+
+fn process_dungeon_queues(ctx: &ReducerContext, now: u64) {
+    // Group queued players by tier+difficulty
+    let queued: Vec<DungeonQueue> = ctx.db.dungeon_queue().iter().collect();
+
+    // Group by tier and difficulty
+    let mut groups: std::collections::HashMap<(u32, u32), Vec<DungeonQueue>> = std::collections::HashMap::new();
+    for q in queued {
+        groups.entry((q.dungeon_tier, q.difficulty))
+            .or_insert_with(Vec::new)
+            .push(q);
+    }
+
+    for ((tier, difficulty), players) in groups {
+        // Check if any player has been waiting 30+ seconds
+        let timeout_threshold = 30000; // 30 seconds
+        let should_start = players.len() >= 2 ||
+            players.iter().any(|p| now - p.queued_at >= timeout_threshold);
+
+        if should_start && !players.is_empty() {
+            // Start dungeon with all queued players
+            let seed = now;
+            let stat_mult = 1.0 + (difficulty.saturating_sub(1) as f32 * 0.15);
+
+            let dungeon = ctx.db.active_dungeon().insert(ActiveDungeon {
+                id: 0,
+                owner_identity: players[0].identity,
+                depth: tier,
+                current_room: 0,
+                total_rooms: 1,
+                seed,
+            });
+
+            // Add all players as participants
+            for p in &players {
+                ctx.db.dungeon_participant().insert(DungeonParticipant {
+                    id: 0,
+                    dungeon_id: dungeon.id,
+                    player_identity: p.identity,
+                });
+
+                // Initialize position
+                if let Some(player) = ctx.db.player().identity().find(p.identity) {
+                    ctx.db.player_position().insert(PlayerPosition {
+                        identity: p.identity,
+                        dungeon_id: dungeon.id,
+                        x: 270.0,
+                        y: 360.0,
+                        facing_x: 0.0,
+                        facing_y: -1.0,
+                        name: player.name.clone(),
+                        level: player.level,
+                        player_class: player.player_class.clone(),
+                        weapon_icon: String::new(),
+                        armor_icon: String::new(),
+                        accessory_icon: String::new(),
+                    });
+                }
+
+                // Remove from queue
+                ctx.db.dungeon_queue().identity().delete(p.identity);
+
+                // Update game mode
+                if let Some(gm) = ctx.db.player_game_mode().identity().find(p.identity) {
+                    ctx.db.player_game_mode().identity().update(PlayerGameMode {
+                        mode: "dungeon".to_string(),
+                        instance_id: Some(dungeon.id),
+                        ..gm
+                    });
+                }
+            }
+
+            // Spawn enemies with loot bonus for party size
+            let loot_bonus = 1.0 + (players.len() as f32 - 1.0) * 0.1; // +10% per extra player
+            spawn_enemies_for_tier(ctx, dungeon.id, tier, stat_mult * loot_bonus, seed);
+
+            // Start enemy AI tick
+            if ctx.db.enemy_tick_schedule().iter().count() == 0 {
+                schedule_enemy_tick(ctx);
+            }
+
+            log::info!("Started co-op dungeon tier {} with {} players", tier, players.len());
+        }
+    }
+}
+
+fn process_raid_queues(ctx: &ReducerContext, now: u64) {
+    // Need exactly: 1 tank, 1 healer, 2 dps
+    let tanks: Vec<RaidQueue> = ctx.db.raid_queue().iter()
+        .filter(|q| q.player_class == "tank")
+        .collect();
+    let healers: Vec<RaidQueue> = ctx.db.raid_queue().iter()
+        .filter(|q| q.player_class == "healer")
+        .collect();
+    let dps: Vec<RaidQueue> = ctx.db.raid_queue().iter()
+        .filter(|q| q.player_class == "dps")
+        .collect();
+
+    if tanks.len() >= 1 && healers.len() >= 1 && dps.len() >= 2 {
+        // Form raid party
+        let party = vec![
+            tanks[0].identity,
+            healers[0].identity,
+            dps[0].identity,
+            dps[1].identity,
+        ];
+
+        // Create raid instance
+        let (boss_hp, _boss_atk) = get_enemy_stats("raid_boss", 1);
+        let raid = ctx.db.raid_instance().insert(RaidInstance {
+            id: 0,
+            started_at: now,
+            boss_hp,
+            boss_max_hp: boss_hp,
+            boss_phase: 1,
+            wipe_count: 0,
+        });
+
+        // Add participants
+        for pid in &party {
+            if let Some(player) = ctx.db.player().identity().find(*pid) {
+                ctx.db.raid_participant().insert(RaidParticipant {
+                    id: 0,
+                    raid_id: raid.id,
+                    player_identity: *pid,
+                    player_class: player.player_class.clone(),
+                    disconnected_at: None,
+                });
+
+                // Remove from queue
+                ctx.db.raid_queue().identity().delete(*pid);
+
+                // Update game mode
+                if let Some(gm) = ctx.db.player_game_mode().identity().find(*pid) {
+                    ctx.db.player_game_mode().identity().update(PlayerGameMode {
+                        mode: "raid".to_string(),
+                        instance_id: Some(raid.id),
+                        ..gm
+                    });
+                }
+            }
+        }
+
+        log::info!("Started raid with party of 4");
     }
 }

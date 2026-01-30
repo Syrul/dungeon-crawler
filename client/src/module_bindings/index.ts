@@ -36,32 +36,54 @@ import AddInventoryItemReducer from "./add_inventory_item_reducer";
 export { AddInventoryItemReducer };
 import AttackReducer from "./attack_reducer";
 export { AttackReducer };
+import AttackOpenWorldReducer from "./attack_open_world_reducer";
+export { AttackOpenWorldReducer };
+import CancelQueueReducer from "./cancel_queue_reducer";
+export { CancelQueueReducer };
 import CompleteDungeonReducer from "./complete_dungeon_reducer";
 export { CompleteDungeonReducer };
 import DiscardItemReducer from "./discard_item_reducer";
 export { DiscardItemReducer };
+import EnterOpenWorldReducer from "./enter_open_world_reducer";
+export { EnterOpenWorldReducer };
 import EnterRoomReducer from "./enter_room_reducer";
 export { EnterRoomReducer };
 import EquipItemReducer from "./equip_item_reducer";
 export { EquipItemReducer };
+import LeaveOpenWorldReducer from "./leave_open_world_reducer";
+export { LeaveOpenWorldReducer };
 import LoginReducer from "./login_reducer";
 export { LoginReducer };
 import PickupLootReducer from "./pickup_loot_reducer";
 export { PickupLootReducer };
 import PlaceHealingZoneReducer from "./place_healing_zone_reducer";
 export { PlaceHealingZoneReducer };
+import QueueDungeonReducer from "./queue_dungeon_reducer";
+export { QueueDungeonReducer };
+import QueueRaidReducer from "./queue_raid_reducer";
+export { QueueRaidReducer };
 import RegisterPlayerReducer from "./register_player_reducer";
 export { RegisterPlayerReducer };
 import SendChatReducer from "./send_chat_reducer";
 export { SendChatReducer };
 import SendEmoteReducer from "./send_emote_reducer";
 export { SendEmoteReducer };
+import SetGameModeReducer from "./set_game_mode_reducer";
+export { SetGameModeReducer };
 import StartDungeonReducer from "./start_dungeon_reducer";
 export { StartDungeonReducer };
+import StartDungeonSoloReducer from "./start_dungeon_solo_reducer";
+export { StartDungeonSoloReducer };
 import TickEnemiesReducer from "./tick_enemies_reducer";
 export { TickEnemiesReducer };
+import TickMatchmakingReducer from "./tick_matchmaking_reducer";
+export { TickMatchmakingReducer };
+import TickOpenWorldReducer from "./tick_open_world_reducer";
+export { TickOpenWorldReducer };
 import UnequipItemReducer from "./unequip_item_reducer";
 export { UnequipItemReducer };
+import UpdateOpenWorldPositionReducer from "./update_open_world_position_reducer";
+export { UpdateOpenWorldPositionReducer };
 import UpdatePositionReducer from "./update_position_reducer";
 export { UpdatePositionReducer };
 import UseDashReducer from "./use_dash_reducer";
@@ -78,24 +100,48 @@ import ActiveDungeonRow from "./active_dungeon_table";
 export { ActiveDungeonRow };
 import ActiveHealingZoneRow from "./active_healing_zone_table";
 export { ActiveHealingZoneRow };
+import DailyRaidClearRow from "./daily_raid_clear_table";
+export { DailyRaidClearRow };
 import DungeonEnemyRow from "./dungeon_enemy_table";
 export { DungeonEnemyRow };
 import DungeonParticipantRow from "./dungeon_participant_table";
 export { DungeonParticipantRow };
+import DungeonQueueRow from "./dungeon_queue_table";
+export { DungeonQueueRow };
 import EnemyTickScheduleRow from "./enemy_tick_schedule_table";
 export { EnemyTickScheduleRow };
 import InventoryItemRow from "./inventory_item_table";
 export { InventoryItemRow };
 import LootDropRow from "./loot_drop_table";
 export { LootDropRow };
+import MatchmakingTickScheduleRow from "./matchmaking_tick_schedule_table";
+export { MatchmakingTickScheduleRow };
+import OpenWorldEnemyRow from "./open_world_enemy_table";
+export { OpenWorldEnemyRow };
+import OpenWorldInstanceRow from "./open_world_instance_table";
+export { OpenWorldInstanceRow };
+import OpenWorldPlayerRow from "./open_world_player_table";
+export { OpenWorldPlayerRow };
+import OpenWorldTickScheduleRow from "./open_world_tick_schedule_table";
+export { OpenWorldTickScheduleRow };
 import PlayerRow from "./player_table";
 export { PlayerRow };
 import PlayerAbilityStateRow from "./player_ability_state_table";
 export { PlayerAbilityStateRow };
+import PlayerGameModeRow from "./player_game_mode_table";
+export { PlayerGameModeRow };
 import PlayerMessageRow from "./player_message_table";
 export { PlayerMessageRow };
 import PlayerPositionRow from "./player_position_table";
 export { PlayerPositionRow };
+import RaidCooldownRow from "./raid_cooldown_table";
+export { RaidCooldownRow };
+import RaidInstanceRow from "./raid_instance_table";
+export { RaidInstanceRow };
+import RaidParticipantRow from "./raid_participant_table";
+export { RaidParticipantRow };
+import RaidQueueRow from "./raid_queue_table";
+export { RaidQueueRow };
 import ThreatEntryRow from "./threat_entry_table";
 export { ThreatEntryRow };
 
@@ -104,24 +150,48 @@ import ActiveDungeon from "./active_dungeon_type";
 export { ActiveDungeon };
 import ActiveHealingZone from "./active_healing_zone_type";
 export { ActiveHealingZone };
+import DailyRaidClear from "./daily_raid_clear_type";
+export { DailyRaidClear };
 import DungeonEnemy from "./dungeon_enemy_type";
 export { DungeonEnemy };
 import DungeonParticipant from "./dungeon_participant_type";
 export { DungeonParticipant };
+import DungeonQueue from "./dungeon_queue_type";
+export { DungeonQueue };
 import EnemyTickSchedule from "./enemy_tick_schedule_type";
 export { EnemyTickSchedule };
 import InventoryItem from "./inventory_item_type";
 export { InventoryItem };
 import LootDrop from "./loot_drop_type";
 export { LootDrop };
+import MatchmakingTickSchedule from "./matchmaking_tick_schedule_type";
+export { MatchmakingTickSchedule };
+import OpenWorldEnemy from "./open_world_enemy_type";
+export { OpenWorldEnemy };
+import OpenWorldInstance from "./open_world_instance_type";
+export { OpenWorldInstance };
+import OpenWorldPlayer from "./open_world_player_type";
+export { OpenWorldPlayer };
+import OpenWorldTickSchedule from "./open_world_tick_schedule_type";
+export { OpenWorldTickSchedule };
 import Player from "./player_type";
 export { Player };
 import PlayerAbilityState from "./player_ability_state_type";
 export { PlayerAbilityState };
+import PlayerGameMode from "./player_game_mode_type";
+export { PlayerGameMode };
 import PlayerMessage from "./player_message_type";
 export { PlayerMessage };
 import PlayerPosition from "./player_position_type";
 export { PlayerPosition };
+import RaidCooldown from "./raid_cooldown_type";
+export { RaidCooldown };
+import RaidInstance from "./raid_instance_type";
+export { RaidInstance };
+import RaidParticipant from "./raid_participant_type";
+export { RaidParticipant };
+import RaidQueue from "./raid_queue_type";
+export { RaidQueue };
 import ThreatEntry from "./threat_entry_type";
 export { ThreatEntry };
 
@@ -150,6 +220,17 @@ const tablesSchema = __schema(
     ],
   }, ActiveHealingZoneRow),
   __table({
+    name: 'daily_raid_clear',
+    indexes: [
+      { name: 'identity', algorithm: 'btree', columns: [
+        'identity',
+      ] },
+    ],
+    constraints: [
+      { name: 'daily_raid_clear_identity_key', constraint: 'unique', columns: ['identity'] },
+    ],
+  }, DailyRaidClearRow),
+  __table({
     name: 'dungeon_enemy',
     indexes: [
       { name: 'id', algorithm: 'btree', columns: [
@@ -171,6 +252,17 @@ const tablesSchema = __schema(
       { name: 'dungeon_participant_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, DungeonParticipantRow),
+  __table({
+    name: 'dungeon_queue',
+    indexes: [
+      { name: 'identity', algorithm: 'btree', columns: [
+        'identity',
+      ] },
+    ],
+    constraints: [
+      { name: 'dungeon_queue_identity_key', constraint: 'unique', columns: ['identity'] },
+    ],
+  }, DungeonQueueRow),
   __table({
     name: 'enemy_tick_schedule',
     indexes: [
@@ -205,6 +297,61 @@ const tablesSchema = __schema(
     ],
   }, LootDropRow),
   __table({
+    name: 'matchmaking_tick_schedule',
+    indexes: [
+      { name: 'scheduled_id', algorithm: 'btree', columns: [
+        'scheduledId',
+      ] },
+    ],
+    constraints: [
+      { name: 'matchmaking_tick_schedule_scheduled_id_key', constraint: 'unique', columns: ['scheduledId'] },
+    ],
+  }, MatchmakingTickScheduleRow),
+  __table({
+    name: 'open_world_enemy',
+    indexes: [
+      { name: 'id', algorithm: 'btree', columns: [
+        'id',
+      ] },
+    ],
+    constraints: [
+      { name: 'open_world_enemy_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, OpenWorldEnemyRow),
+  __table({
+    name: 'open_world_instance',
+    indexes: [
+      { name: 'id', algorithm: 'btree', columns: [
+        'id',
+      ] },
+    ],
+    constraints: [
+      { name: 'open_world_instance_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, OpenWorldInstanceRow),
+  __table({
+    name: 'open_world_player',
+    indexes: [
+      { name: 'identity', algorithm: 'btree', columns: [
+        'identity',
+      ] },
+    ],
+    constraints: [
+      { name: 'open_world_player_identity_key', constraint: 'unique', columns: ['identity'] },
+    ],
+  }, OpenWorldPlayerRow),
+  __table({
+    name: 'open_world_tick_schedule',
+    indexes: [
+      { name: 'scheduled_id', algorithm: 'btree', columns: [
+        'scheduledId',
+      ] },
+    ],
+    constraints: [
+      { name: 'open_world_tick_schedule_scheduled_id_key', constraint: 'unique', columns: ['scheduledId'] },
+    ],
+  }, OpenWorldTickScheduleRow),
+  __table({
     name: 'player',
     indexes: [
       { name: 'identity', algorithm: 'btree', columns: [
@@ -226,6 +373,17 @@ const tablesSchema = __schema(
       { name: 'player_ability_state_identity_key', constraint: 'unique', columns: ['identity'] },
     ],
   }, PlayerAbilityStateRow),
+  __table({
+    name: 'player_game_mode',
+    indexes: [
+      { name: 'identity', algorithm: 'btree', columns: [
+        'identity',
+      ] },
+    ],
+    constraints: [
+      { name: 'player_game_mode_identity_key', constraint: 'unique', columns: ['identity'] },
+    ],
+  }, PlayerGameModeRow),
   __table({
     name: 'player_message',
     indexes: [
@@ -249,6 +407,50 @@ const tablesSchema = __schema(
     ],
   }, PlayerPositionRow),
   __table({
+    name: 'raid_cooldown',
+    indexes: [
+      { name: 'identity', algorithm: 'btree', columns: [
+        'identity',
+      ] },
+    ],
+    constraints: [
+      { name: 'raid_cooldown_identity_key', constraint: 'unique', columns: ['identity'] },
+    ],
+  }, RaidCooldownRow),
+  __table({
+    name: 'raid_instance',
+    indexes: [
+      { name: 'id', algorithm: 'btree', columns: [
+        'id',
+      ] },
+    ],
+    constraints: [
+      { name: 'raid_instance_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, RaidInstanceRow),
+  __table({
+    name: 'raid_participant',
+    indexes: [
+      { name: 'id', algorithm: 'btree', columns: [
+        'id',
+      ] },
+    ],
+    constraints: [
+      { name: 'raid_participant_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, RaidParticipantRow),
+  __table({
+    name: 'raid_queue',
+    indexes: [
+      { name: 'identity', algorithm: 'btree', columns: [
+        'identity',
+      ] },
+    ],
+    constraints: [
+      { name: 'raid_queue_identity_key', constraint: 'unique', columns: ['identity'] },
+    ],
+  }, RaidQueueRow),
+  __table({
     name: 'threat_entry',
     indexes: [
       { name: 'id', algorithm: 'btree', columns: [
@@ -265,19 +467,30 @@ const tablesSchema = __schema(
 const reducersSchema = __reducers(
   __reducerSchema("add_inventory_item", AddInventoryItemReducer),
   __reducerSchema("attack", AttackReducer),
+  __reducerSchema("attack_open_world", AttackOpenWorldReducer),
+  __reducerSchema("cancel_queue", CancelQueueReducer),
   __reducerSchema("complete_dungeon", CompleteDungeonReducer),
   __reducerSchema("discard_item", DiscardItemReducer),
+  __reducerSchema("enter_open_world", EnterOpenWorldReducer),
   __reducerSchema("enter_room", EnterRoomReducer),
   __reducerSchema("equip_item", EquipItemReducer),
+  __reducerSchema("leave_open_world", LeaveOpenWorldReducer),
   __reducerSchema("login", LoginReducer),
   __reducerSchema("pickup_loot", PickupLootReducer),
   __reducerSchema("place_healing_zone", PlaceHealingZoneReducer),
+  __reducerSchema("queue_dungeon", QueueDungeonReducer),
+  __reducerSchema("queue_raid", QueueRaidReducer),
   __reducerSchema("register_player", RegisterPlayerReducer),
   __reducerSchema("send_chat", SendChatReducer),
   __reducerSchema("send_emote", SendEmoteReducer),
+  __reducerSchema("set_game_mode", SetGameModeReducer),
   __reducerSchema("start_dungeon", StartDungeonReducer),
+  __reducerSchema("start_dungeon_solo", StartDungeonSoloReducer),
   __reducerSchema("tick_enemies", TickEnemiesReducer),
+  __reducerSchema("tick_matchmaking", TickMatchmakingReducer),
+  __reducerSchema("tick_open_world", TickOpenWorldReducer),
   __reducerSchema("unequip_item", UnequipItemReducer),
+  __reducerSchema("update_open_world_position", UpdateOpenWorldPositionReducer),
   __reducerSchema("update_position", UpdatePositionReducer),
   __reducerSchema("use_dash", UseDashReducer),
   __reducerSchema("use_knockback", UseKnockbackReducer),

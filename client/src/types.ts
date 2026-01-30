@@ -2,6 +2,36 @@
 
 export type GameMode = 'offline' | 'online';
 
+// Active game mode (what the player is currently doing)
+export type ActiveGameMode = 'hub' | 'open_world' | 'dungeon' | 'raid';
+
+// Dungeon tier configuration
+export interface DungeonTier {
+  tier: number;
+  name: string;
+  description: string;
+  levelRange: [number, number];
+  icon: string;
+}
+
+export const DUNGEON_TIERS: DungeonTier[] = [
+  { tier: 1, name: 'Training Grounds', description: 'Basic enemies for new adventurers', levelRange: [1, 5], icon: '🌱' },
+  { tier: 2, name: 'Tactical Chamber', description: 'Archers, chargers, and a mini-boss', levelRange: [6, 10], icon: '⚔️' },
+  { tier: 3, name: 'The Gauntlet', description: 'Wolf packs, bombers, and necromancers', levelRange: [11, 15], icon: '💀' },
+];
+
+// Open World zone info
+export interface OpenWorldZone {
+  levelRange: [number, number];
+  color: string;
+}
+
+export const OPEN_WORLD_ZONES: Record<string, OpenWorldZone> = {
+  center: { levelRange: [1, 5], color: '#22c55e' },   // Green - safe
+  mid: { levelRange: [6, 15], color: '#fbbf24' },     // Yellow - medium
+  outer: { levelRange: [16, 25], color: '#ef4444' },  // Red - dangerous
+};
+
 // Player class type for the holy trinity system
 export type PlayerClass = 'tank' | 'healer' | 'dps';
 
@@ -61,6 +91,26 @@ export interface GameCallbacks {
   onKnockback?: () => void;
   // Healer ability: place healing zone at position
   onPlaceHealingZone?: (x: number, y: number) => void;
+
+  // Game mode callbacks
+  // Called when entering open world
+  onEnterOpenWorld?: () => void;
+  // Called when leaving open world (return to hub)
+  onLeaveOpenWorld?: () => void;
+  // Called when moving in open world
+  onOpenWorldMove?: (roomX: number, roomY: number, x: number, y: number, facingX: number, facingY: number) => void;
+  // Called when attacking in open world
+  onOpenWorldAttack?: (enemyId: bigint) => void;
+  // Called when queueing for dungeon
+  onQueueDungeon?: (tier: number, difficulty: number) => void;
+  // Called when starting solo dungeon
+  onStartDungeonSolo?: (tier: number, difficulty: number) => void;
+  // Called when queueing for raid
+  onQueueRaid?: () => void;
+  // Called when canceling queue
+  onCancelQueue?: () => void;
+  // Called when returning to hub
+  onReturnToHub?: () => void;
 }
 
 export interface ConnectionState {
