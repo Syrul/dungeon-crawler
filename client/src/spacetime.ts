@@ -712,6 +712,11 @@ class SpacetimeClient {
     maxHp: number,
     isAlive: boolean,
     enemyType: string,
+    aiState: string,
+    stateTimer: number,
+    targetX: number,
+    targetY: number,
+    facingAngle: number,
   }) => void, onDelete?: (id: bigint) => void) {
     if (!this.conn) return;
     try {
@@ -726,6 +731,11 @@ class SpacetimeClient {
         maxHp: row.maxHp,
         isAlive: row.isAlive,
         enemyType: row.enemyType,
+        aiState: row.aiState,
+        stateTimer: row.stateTimer,
+        targetX: row.targetX,
+        targetY: row.targetY,
+        facingAngle: row.facingAngle,
       });
       (this.conn.db as any).openWorldEnemy.onInsert((_ctx: any, row: any) => {
         cb(mapRow(row));
@@ -807,6 +817,11 @@ class SpacetimeClient {
     maxHp: number,
     isAlive: boolean,
     enemyType: string,
+    aiState: string,
+    stateTimer: number,
+    targetX: number,
+    targetY: number,
+    facingAngle: number,
   }> {
     if (!this.conn) return [];
     try {
@@ -818,6 +833,11 @@ class SpacetimeClient {
         maxHp: number,
         isAlive: boolean,
         enemyType: string,
+        aiState: string,
+        stateTimer: number,
+        targetX: number,
+        targetY: number,
+        facingAngle: number,
       }> = [];
       const targetInstanceId = instanceId.toString();
       for (const e of (this.conn.db as any).openWorldEnemy.iter()) {
@@ -830,6 +850,11 @@ class SpacetimeClient {
             maxHp: e.maxHp,
             isAlive: e.isAlive,
             enemyType: e.enemyType,
+            aiState: e.aiState,
+            stateTimer: e.stateTimer,
+            targetX: e.targetX,
+            targetY: e.targetY,
+            facingAngle: e.facingAngle,
           });
         }
       }

@@ -1157,7 +1157,8 @@ export function getCurrentRoom() { return currentRoom; }
 
 /** Initialize open world enemies from server query */
 export function initOpenWorldServerEnemies(serverEnemies: Array<{
-  id: bigint, x: number, y: number, hp: number, maxHp: number, isAlive: boolean, enemyType: string
+  id: bigint, x: number, y: number, hp: number, maxHp: number, isAlive: boolean, enemyType: string,
+  aiState: string, stateTimer: number, targetX: number, targetY: number, facingAngle: number
 }>) {
   openWorldServerEnemies.clear();
   const now = performance.now();
@@ -1180,9 +1181,9 @@ export function initOpenWorldServerEnemies(serverEnemies: Array<{
       r: visuals.r,
       knockX: 0,
       knockY: 0,
-      aiState: 'idle',
-      stateTimer: 0,
-      facingAngle: 0,
+      aiState: e.aiState,
+      stateTimer: e.stateTimer,
+      facingAngle: e.facingAngle,
     });
   }
   console.log('[Game] Initialized', openWorldServerEnemies.size, 'open world server enemies');
@@ -1191,7 +1192,8 @@ export function initOpenWorldServerEnemies(serverEnemies: Array<{
 /** Sync open world enemy from server update */
 export function syncOpenWorldEnemyFromServer(enemy: {
   id: bigint, instanceId: bigint, roomX: number, roomY: number,
-  x: number, y: number, hp: number, maxHp: number, isAlive: boolean, enemyType: string
+  x: number, y: number, hp: number, maxHp: number, isAlive: boolean, enemyType: string,
+  aiState: string, stateTimer: number, targetX: number, targetY: number, facingAngle: number
 }) {
   // Only process enemies for the current room
   if (enemy.roomX !== openWorldRoomX || enemy.roomY !== openWorldRoomY) {
@@ -1241,7 +1243,7 @@ export function syncOpenWorldEnemyFromServer(enemy: {
       haptic('kill');
     }
 
-    // Update position
+    // Update position and AI state
     existing.prevX = existing.serverX;
     existing.prevY = existing.serverY;
     existing.serverX = serverToClientX(enemy.x);
@@ -1249,6 +1251,9 @@ export function syncOpenWorldEnemyFromServer(enemy: {
     existing.hp = enemy.hp;
     existing.maxHp = enemy.maxHp;
     existing.isAlive = enemy.isAlive;
+    existing.aiState = enemy.aiState;
+    existing.stateTimer = enemy.stateTimer;
+    existing.facingAngle = enemy.facingAngle;
     existing.lastUpdateTime = now;
   } else {
     // New enemy
@@ -1268,9 +1273,9 @@ export function syncOpenWorldEnemyFromServer(enemy: {
       r: visuals.r,
       knockX: 0,
       knockY: 0,
-      aiState: 'idle',
-      stateTimer: 0,
-      facingAngle: 0,
+      aiState: enemy.aiState,
+      stateTimer: enemy.stateTimer,
+      facingAngle: enemy.facingAngle,
     });
   }
 }
