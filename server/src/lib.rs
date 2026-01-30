@@ -2827,23 +2827,16 @@ pub fn tick_open_world(ctx: &ReducerContext, _arg: OpenWorldTickSchedule) {
             let dx = target.x - e.x;
             let dy = target.y - e.y;
             let dist = (dx * dx + dy * dy).sqrt();
+            let (nx, ny) = if dist > 0.1 { (dx / dist, dy / dist) } else { (0.0, 0.0) };
 
             // Update facing angle toward target
-            e.facing_angle = dy.atan2(dx);
+            e.facing_angle = ny.atan2(nx);
 
-            // Get enemy speed based on type (scaled by dt)
-            let base_speed = match e.enemy_type.as_str() {
-                "slime" => 40.0,
-                "skeleton" | "archer" => 55.0,
-                "wolf" => 70.0,
-                _ => 50.0,
-            };
-            let speed = base_speed * dt * 60.0; // Scale to 60fps equivalent
+            // Use same speed calculation as dungeon enemies
+            let speed = get_enemy_speed(&e.enemy_type) * dt * 60.0;
 
-            // Chase if not in attack range
-            let attack_range = 35.0;
-            if dist > attack_range {
-                let (nx, ny) = if dist > 0.1 { (dx / dist, dy / dist) } else { (0.0, 0.0) };
+            // Chase if not in attack range (use same range as dungeon)
+            if dist > ENEMY_ATTACK_RANGE {
                 e.x += nx * speed;
                 e.y += ny * speed;
                 // Clamp to room bounds
